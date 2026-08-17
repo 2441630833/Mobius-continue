@@ -33,11 +33,13 @@ export function ModeSelect() {
     return getMetaKeyLabel();
   }, []);
 
-  const cycleMode = useCallback(() => {
+    const cycleMode = useCallback(() => {
     if (mode === "chat") {
       dispatch(setMode("plan"));
     } else if (mode === "plan") {
       dispatch(setMode("agent"));
+    } else if (mode === "agent") {
+      dispatch(setMode("game"));
     } else {
       dispatch(setMode("chat"));
     }
@@ -102,7 +104,13 @@ export function ModeSelect() {
         >
           <ModeIcon mode={mode} />
           <span className="hidden sm:block">
-            {mode === "chat" ? "Chat" : mode === "agent" ? "Agent" : "Plan"}
+            {mode === "chat"
+            ? "Chat"
+            : mode === "agent"
+              ? "Agent"
+              : mode === "game"
+                ? "Game"
+                : "Plan"}
           </span>
           <ChevronDownIcon
             className="h-2 w-2 flex-shrink-0"
@@ -152,7 +160,7 @@ export function ModeSelect() {
             />
           </ListboxOption>
 
-          <ListboxOption value="agent" className={"gap-1"}>
+                    <ListboxOption value="agent" className={"gap-1"}>
             <div className="flex flex-row items-center gap-1.5">
               <ModeIcon mode="agent" />
               <span className="">Agent</span>
@@ -168,6 +176,25 @@ export function ModeSelect() {
             {!isGoodAtAgentMode && notGreatAtAgent("Agent")}
             <CheckIcon
               className={`ml-auto h-3 w-3 ${mode === "agent" ? "" : "opacity-0"}`}
+            />
+          </ListboxOption>
+
+          <ListboxOption value="game" className={"gap-1"}>
+            <div className="flex flex-row items-center gap-1.5">
+              <ModeIcon mode="game" />
+              <span className="">Game</span>
+              <ToolTip
+                style={{
+                  zIndex: 200001,
+                }}
+                content="Godot game-dev loop: write to game-dev/, import, test, run, preview"
+              >
+                <InformationCircleIcon className="h-2.5 w-2.5 flex-shrink-0" />
+              </ToolTip>
+            </div>
+            {!isGoodAtAgentMode && notGreatAtAgent("Game")}
+            <CheckIcon
+              className={`ml-auto h-3 w-3 ${mode === "game" ? "" : "opacity-0"}`}
             />
           </ListboxOption>
 

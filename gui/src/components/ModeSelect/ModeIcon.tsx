@@ -1,5 +1,6 @@
 import {
   ChatBubbleLeftIcon,
+  PlayCircleIcon,
   RocketLaunchIcon,
   SparklesIcon,
   SwatchIcon,
@@ -20,8 +21,10 @@ export function ModeIcon({
       return <SparklesIcon className={className} />;
     case "plan":
       return <SwatchIcon className={className} />;
-    case "chat":
+        case "chat":
       return <ChatBubbleLeftIcon className={className} />;
+    case "game":
+      return <PlayCircleIcon className={className} />;
     case "background":
       return <RocketLaunchIcon className={className} />;
   }

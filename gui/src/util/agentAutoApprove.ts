@@ -10,9 +10,11 @@ export function shouldAutoApproveDuringAgentTask(
   mode: MessageModes,
   policy: ToolPolicy,
 ): boolean {
-  return mode === "agent" && policy !== "disabled";
+    return (
+    (mode === "agent" || mode === "game") && policy !== "disabled"
+  );
 }
 
 export function isAgentTaskAutoApproveEnabled(mode: MessageModes): boolean {
-  return mode === "agent";
+  return mode === "agent" || mode === "game";
 }
