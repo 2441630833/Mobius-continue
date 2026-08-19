@@ -5,7 +5,6 @@ import { ContextMenuConfig, ILLM, ModelInstaller } from "core";
 import { CompletionProvider } from "core/autocomplete/CompletionProvider";
 import { ConfigHandler } from "core/config/ConfigHandler";
 import { EXTENSION_NAME } from "core/util/constants";
-import { Core } from "core/core";
 import { walkDirAsync } from "core/indexing/walkDir";
 import { isModelInstaller } from "core/llm";
 import { NextEditLoggingService } from "core/nextEdit/NextEditLoggingService";
@@ -930,6 +929,11 @@ const getCommandsMap: (
     /** Workbench Chat Agent: Continue rules text for Agents window system prompt. */
     "continue.getAgentChatRules": async (request?: { userMessage?: string }) =>
       getAgentChatRules(configHandler, request?.userMessage),
+
+    /** Agents window: pause codebase MiniLM indexing while any agent session is running. */
+    "continue.setIndexingPaused": (paused?: boolean) => {
+      core.invoke("index/setPaused", !!paused);
+    },
 
     /** Workbench Chat Agent: execute a Continue core built-in tool via tools/call. */
     "continue.callBuiltInTool": async (request: {

@@ -17,6 +17,7 @@ import DocsService from "./indexing/docs/DocsService";
 import { countTokens } from "./llm/countTokens";
 import Lemonade from "./llm/llms/Lemonade";
 import { fetchModels } from "./llm/fetchModels";
+import { setTransformersJsBackgroundPaused } from "./llm/llms/TransformersJsEmbeddingsProvider";
 import Ollama from "./llm/llms/Ollama";
 import { EditAggregator } from "./nextEdit/context/aggregateEdits";
 import { createNewPromptFileV2 } from "./promptFiles/createNewPromptFile";
@@ -817,6 +818,7 @@ export class Core {
       this.globalContext.update("indexingPaused", msg.data);
       // Update using the new setter instead of token
       this.codeBaseIndexer.paused = msg.data;
+      setTransformersJsBackgroundPaused(!!msg.data);
     });
     on("index/indexingProgressBarInitialized", async (msg) => {
       // Triggered when progress bar is initialized.

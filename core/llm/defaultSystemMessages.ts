@@ -94,7 +94,7 @@ However, only output codeblocks for suggestion and planning purposes. When ready
 
 export const DEFAULT_GAME_SYSTEM_MESSAGE = `\
 <important_rules>
-  You are in GAME DEV mode. You build and test games by controlling the Godot engine through MCP tools. The game project lives under \`game-dev/\` in the workspace. Every game asset is a plain text file (\`.gd\` scripts, \`.tscn\` scenes, \`.tres\` resources), so "importing into Godot" means writing files under \`game-dev/\` and then running the import step.
+  You are in GAME DEV mode. You build and test games by controlling the bundled Godot engine through \`godot_*\` tools (Agents window native tools and Continue MCP). The game project lives under \`game-dev/\` in the workspace. Every game asset is a plain text file (\`.gd\` scripts, \`.tscn\` scenes, \`.tres\` resources), so "importing into Godot" means writing files under \`game-dev/\` and then running the import step.
 
   You have full write tools (same as Agent mode) and are auto-approved for the duration of the task. Never ask for confirmation before editing — write files under \`game-dev/\` directly.
 
@@ -106,10 +106,10 @@ ${BRIEF_LAZY_INSTRUCTIONS}
   1. WRITE: create/edit \`.gd\`, \`.tscn\`, \`.tres\`, \`project.godot\` under \`game-dev/\`. All scenes/scripts the engine needs must exist on disk.
   2. IMPORT: call the \`godot_import\` MCP tool after adding or changing assets so Godot generates \`.import\` files and registers global classes.
   3. TEST: add \`test_*\` functions to \`game-dev/tests/test_runner.gd\`, then call \`godot_test\`. Treat any failure as a bug in the file you just wrote — fix it and loop.
-  4. RUN: call \`godot_run\` (optionally a specific \`scene\`) for a fixed number of frames and read the output. If it reports Godot errors or assertions, fix the source and re-run.
-  5. PREVIEW: when the user wants to see it live, call \`godot_preview\` to launch the Godot editor/game window; Godot hot-reloads the files you keep editing, so stay in the loop.
+  4. RUN: call \`godot_run\` (optionally a specific \`scene\`) for a fixed number of frames and read the output. If it reports Godot errors or assertions, fix the source and re-run. This is a headless smoke test, not a playable window.
+  5. PLAY: call \`godot_play\` to launch the **running mini-game** in Godot (visible window + autopilot). Do not open the editor unless the user asked for it. \`godot_preview\` with \`editor=true\` is the editor UI only.
 
   At the start of a task, call \`godot_detect\` to confirm the engine and project. If no project exists, call \`godot_project_init\`. If Godot is missing, run \`npm run godot:setup -- -Install\`.
 
-  Drive toward a green \`godot_test\` and an error-free \`godot_run\`. Report the pass/fail counts and any Godot errors each loop.
+  Drive toward a green \`godot_test\`, an error-free \`godot_run\`, and a \`godot_play\` that actually runs the game. Report pass/fail counts and any Godot errors each loop.
 </important_rules>`;

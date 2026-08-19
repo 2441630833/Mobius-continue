@@ -199,6 +199,18 @@ void (async () => {
   console.log(
     `[timer] onnxruntime copy completed in ${Date.now() - onnxCopyStart}ms`,
   );
+
+  // Full packages so the MiniLM worker can `require("onnxruntime-node")` with
+  // the real napi-v3 layout (esbuild must not hash the .node binaries).
+  for (const pkg of ["onnxruntime-node", "onnxruntime-web", "onnxruntime-common"]) {
+    const from = path.join(__dirname, "../../../core/node_modules", pkg);
+    const to = path.join(__dirname, "../node_modules", pkg);
+    if (!fs.existsSync(from)) {
+      continue;
+    }
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.cpSync(from, to, { recursive: true, dereference: true });
+  }
   if (target) {
     // If building for production, only need the binaries for current platform
     try {
@@ -497,6 +509,8 @@ void (async () => {
     "out/tree-sitter.wasm",
     // Worker required by jsdom
     "out/xhr-sync-worker.js",
+    // MiniLM ONNX worker (embeddings must not run on the extension-host event loop)
+    "out/transformersJsEmbedWorker.js",
     // SQLite3 Node native module
     "out/build/Release/node_sqlite3.node",
 

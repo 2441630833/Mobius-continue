@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildEnvFileContent,
   dedupeUseResponsesApiKeys,
+  ensureLocalEmbedBlock,
   envFileProfileRichness,
   getDefaultModelEnvSettings,
   normalizeModelSettings,
@@ -361,6 +362,9 @@ describe("resetModelEnvToDefault", () => {
       );
       // local embed remains; no cloud chat block was seeded by reset.
       expect(yaml).toContain("name: local-embed");
+      expect(yaml).toContain("provider: transformers.js");
+      expect(yaml).toContain("all-MiniLM-L6-v2");
+      expect(yaml).not.toContain("nomic-embed-text");
       expect(yaml).not.toContain("Qwen/QwQ-32B");
 
       const continueEnv = fs.readFileSync(
@@ -459,6 +463,50 @@ AI_MODEL=deepseek-ai/DeepSeek-V3
     const flat = `AI_PROVIDER=openai\nAI_MODEL=demx_llm\nAI_API_KEY=x\n`;
     expect(envFileProfileRichness(multi)).toBeGreaterThan(
       envFileProfileRichness(flat),
+    );
+  });
+});
+
+describe("ensureLocalEmbedBlock", () => {
+  it("migrates Ollama nomic-embed-text to in-process transformers.js", () => {
+    const yaml = `name: Mobius
+version: 1.0.0
+schema: v1
+
+models:
+  - name: local-embed
+    provider: ollama
+    model: nomic-embed-text
+    apiBase: http://127.0.0.1:25137
+    roles:
+      - embed
+
+context:
+  - provider: code
+`;
+    const updated = ensureLocalEmbedBlock(yaml);
+    expect(updated).toContain("provider: transformers.js");
+    expect(updated).toContain("model: all-MiniLM-L6-v2");
+    expect(updated).not.toContain("nomic-embed-text");
+    expect(updated).not.toContain("127.0.0.1:25137");
+    expect(updated).toContain("name: local-embed");
+  });
+
+  it("inserts a transformers.js embed block when none exists", () => {
+    const yaml = `name: Mobius
+models:
+  - name: gpt
+    provider: openai
+    model: gpt-4o
+
+context:
+  - provider: code
+`;
+    const updated = ensureLocalEmbedBlock(yaml);
+    expect(updated).toContain("name: local-embed");
+    expect(updated).toContain("provider: transformers.js");
+    expect(updated.indexOf("name: local-embed")).toBeLessThan(
+      updated.indexOf("context:"),
     );
   });
 });

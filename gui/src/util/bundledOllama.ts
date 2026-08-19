@@ -12,7 +12,7 @@ export function isBundledOllamaApiBase(apiBase?: string): boolean {
 
 /**
  * Retired local chat models on the IDE-managed Ollama instance.
- * Used to hide them from the chat picker (Ollama is embed + OCR only).
+ * Used to hide them from the chat picker (Ollama is OCR only).
  */
 export function isLocalBundledModel(model: {
   title?: string;

@@ -171,6 +171,8 @@ async function package(target, os, arch, exe) {
     "out/tree-sitter.wasm",
     // Worker required by jsdom
     "out/xhr-sync-worker.js",
+    // MiniLM ONNX worker (embeddings must not run on the extension-host event loop)
+    "out/transformersJsEmbedWorker.js",
     // SQLite3 Node native module
     "out/build/Release/node_sqlite3.node",
 

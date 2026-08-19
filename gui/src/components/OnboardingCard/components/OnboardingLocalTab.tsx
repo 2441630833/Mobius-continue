@@ -1,7 +1,6 @@
 import {
   LOCAL_ONBOARDING_CHAT_MODEL,
   LOCAL_ONBOARDING_CHAT_TITLE,
-  LOCAL_ONBOARDING_EMBEDDINGS_MODEL,
   LOCAL_ONBOARDING_FIM_MODEL,
   LOCAL_ONBOARDING_PROVIDER_TITLE,
 } from "core/config/onboarding";
@@ -50,11 +49,7 @@ export function OnboardingLocalTab({ isDialog }: OnboardingLocalTabProps) {
       )
     : false;
 
-  const hasDownloadedEmbeddingsModel = Array.isArray(downloadedOllamaModels)
-    ? downloadedOllamaModels.some(
-        (ollamaModel) => ollamaModel === LOCAL_ONBOARDING_EMBEDDINGS_MODEL,
-      )
-    : false;
+  const hasDownloadedEmbeddingsModel = true;
 
   const allDownloaded =
     hasDownloadedAutocompleteModel &&
@@ -158,11 +153,9 @@ export function OnboardingLocalTab({ isDialog }: OnboardingLocalTabProps) {
             hasDownloaded={hasDownloadedAutocompleteModel}
           />
 
-          <OllamaModelDownload
-            title="Download Embeddings model"
-            modelName={LOCAL_ONBOARDING_EMBEDDINGS_MODEL}
-            hasDownloaded={hasDownloadedEmbeddingsModel}
-          />
+          <div className="text-description-muted px-1 py-2 text-sm">
+            Embeddings use the built-in MiniLM ONNX model (no Ollama download).
+          </div>
 
           <div className="mt-4 w-full">
             <Button

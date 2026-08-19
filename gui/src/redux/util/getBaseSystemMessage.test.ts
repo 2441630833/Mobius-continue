@@ -2,6 +2,7 @@ import { ModelDescription, Tool } from "core";
 import {
   DEFAULT_AGENT_SYSTEM_MESSAGE,
   DEFAULT_CHAT_SYSTEM_MESSAGE,
+  DEFAULT_GAME_SYSTEM_MESSAGE,
   DEFAULT_PLAN_SYSTEM_MESSAGE,
 } from "core/llm/defaultSystemMessages";
 import { getBaseSystemMessage, NO_TOOL_WARNING } from "./getBaseSystemMessage";
@@ -50,6 +51,10 @@ test("getBaseSystemMessage should return the correct system message based on mod
   expect(getBaseSystemMessage("chat", {} as ModelDescription, [mockTool])).toBe(
     DEFAULT_CHAT_SYSTEM_MESSAGE,
   );
+
+  expect(getBaseSystemMessage("game", {} as ModelDescription, [mockTool])).toBe(
+    DEFAULT_GAME_SYSTEM_MESSAGE,
+  );
 });
 
 test("getBaseSystemMessage should append no-tools warning for agent/plan modes without tools", () => {
@@ -82,5 +87,9 @@ test("getBaseSystemMessage should append no-tools warning for agent/plan modes w
   // Test plan mode with undefined tools
   expect(getBaseSystemMessage("plan", mockModel)).toBe(
     "Custom Plan System Message" + NO_TOOL_WARNING,
+  );
+
+  expect(getBaseSystemMessage("game", mockModel, [])).toBe(
+    DEFAULT_GAME_SYSTEM_MESSAGE + NO_TOOL_WARNING,
   );
 });

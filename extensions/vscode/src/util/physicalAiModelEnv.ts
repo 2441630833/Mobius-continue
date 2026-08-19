@@ -1201,9 +1201,10 @@ function replaceFirstModelFields(
 interface NamedModelBlockFields {
   provider: string;
   model: string;
-  apiBase: string;
+  apiBase?: string;
   apiKey?: string;
   removeApiKey?: boolean;
+  removeApiBase?: boolean;
   removeUseResponsesApi?: boolean;
 }
 
@@ -1267,6 +1268,9 @@ function repairNamedModelBlock(
         continue;
       }
       if (/^\s+apiBase:\s*/.test(line)) {
+        if (fields.removeApiBase || fields.apiBase === undefined) {
+          continue;
+        }
         output.push(
           line.replace(/apiBase:\s*.+/, `apiBase: ${fields.apiBase}`),
         );
@@ -1342,12 +1346,24 @@ function removeRetiredLocalChatBlocks(yaml: string): string {
   return updated.replace(/\n{3,}/g, "\n\n");
 }
 
-export const OLLAMA_EMBED = {
+/** In-process MiniLM — Cursor-style local embeddings; bundled Ollama is OCR-only. */
+export const LOCAL_EMBED = {
   name: "local-embed",
-  provider: "ollama",
-  model: "nomic-embed-text",
-  apiBase: BUNDLED_OLLAMA_API_BASE,
+  provider: "transformers.js",
+  model: "all-MiniLM-L6-v2",
 } as const;
+
+/** @deprecated Use LOCAL_EMBED. Kept so older call sites keep compiling. */
+export const OLLAMA_EMBED = LOCAL_EMBED;
+
+function localEmbedYamlBlock(): string {
+  return `  - name: ${LOCAL_EMBED.name}
+    provider: ${LOCAL_EMBED.provider}
+    model: ${LOCAL_EMBED.model}
+    roles:
+      - embed
+`;
+}
 
 /** Repair a corrupted embed block that lost its local-embed name. */
 function repairEmbedRoleModelBlock(yaml: string): string {
@@ -1357,32 +1373,28 @@ function repairEmbedRoleModelBlock(yaml: string): string {
     return yaml;
   }
 
-  const embedBlock = `  - name: ${OLLAMA_EMBED.name}
-    provider: ${OLLAMA_EMBED.provider}
-    model: ${OLLAMA_EMBED.model}
-    apiBase: ${OLLAMA_EMBED.apiBase}
-    roles:
-      - embed
-`;
-
-  return yaml.replace(pattern, embedBlock);
+  return yaml.replace(pattern, localEmbedYamlBlock());
 }
 
 /**
  * Strip retired local chat models (Qwen*) from config.yaml.
- * Bundled Ollama is embed + OCR only — no local chat block.
+ * Bundled Ollama is OCR only — embeddings run in-process via transformers.js.
  */
 export function removeLocalChatModels(yaml: string): string {
   return removeRetiredLocalChatBlocks(yaml);
 }
 
 export function ensureOllamaEmbedBlock(yaml: string): string {
+  return ensureLocalEmbedBlock(yaml);
+}
+
+export function ensureLocalEmbedBlock(yaml: string): string {
   if (/(^|\n)\s*- name:\s*local-embed/m.test(yaml)) {
-    return repairNamedModelBlock(yaml, OLLAMA_EMBED.name, {
-      provider: OLLAMA_EMBED.provider,
-      model: OLLAMA_EMBED.model,
-      apiBase: OLLAMA_EMBED.apiBase,
+    return repairNamedModelBlock(yaml, LOCAL_EMBED.name, {
+      provider: LOCAL_EMBED.provider,
+      model: LOCAL_EMBED.model,
       removeApiKey: true,
+      removeApiBase: true,
       removeUseResponsesApi: true,
     });
   }
@@ -1393,13 +1405,7 @@ export function ensureOllamaEmbedBlock(yaml: string): string {
   }
 
   const embedBlock = `
-  - name: ${OLLAMA_EMBED.name}
-    provider: ${OLLAMA_EMBED.provider}
-    model: ${OLLAMA_EMBED.model}
-    apiBase: ${OLLAMA_EMBED.apiBase}
-    roles:
-      - embed
-`;
+${localEmbedYamlBlock()}`;
 
   if (/^context:/m.test(yaml)) {
     return yaml.replace(/^context:/m, `${embedBlock}\ncontext:`);
@@ -1496,7 +1502,7 @@ export function setEmbedModelSelection(): void {
   }
   const updated = json.replace(
     /"embed"\s*:\s*"[^"]*"/,
-    `"embed": "${OLLAMA_EMBED.name}"`,
+    `"embed": "${LOCAL_EMBED.name}"`,
   );
   if (updated === json) {
     return;
@@ -1513,7 +1519,7 @@ export function selectModelForProfile(
   for (const role of roles) {
     globalContext.updateSelectedModel(profileId, role, modelTitle);
   }
-  globalContext.updateSelectedModel(profileId, "embed", OLLAMA_EMBED.name);
+  globalContext.updateSelectedModel(profileId, "embed", LOCAL_EMBED.name);
 }
 
 /**
@@ -1871,7 +1877,7 @@ export function seedPackagedDefaultModelEnv(
   return true;
 }
 
-/** Ensure bundled Ollama embed model exists in ~/.continue/config.yaml (no local chat). */
+/** Ensure in-process transformers.js embed model exists in ~/.continue/config.yaml (no local chat). */
 export function ensureBundledEmbedModels(
   workspaceRoot: string,
   appRoot?: string,

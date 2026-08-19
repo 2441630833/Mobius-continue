@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 
 const { writeBuildTimestamp } = require("./utils");
 
@@ -50,21 +51,43 @@ const esbuildConfig = {
   ],
 };
 
+const workerEsbuildConfig = {
+  ...esbuildConfig,
+  entryPoints: [
+    path.join(
+      __dirname,
+      "../../../core/llm/llms/transformersJsEmbedWorker.ts",
+    ),
+  ],
+  outfile: "out/transformersJsEmbedWorker.js",
+  metafile: false,
+  plugins: [],
+  // Keep native onnxruntime layout (bin/napi-v3/...) instead of hashing .node files.
+  external: [
+    ...esbuildConfig.external,
+    "onnxruntime-node",
+    "onnxruntime-web",
+    "onnxruntime-common",
+  ],
+};
+
 void (async () => {
   // Create .buildTimestamp.js before starting the first build
   writeBuildTimestamp();
   // Bundles the extension into one file
   if (flags.includes("--watch")) {
     const ctx = await esbuild.context(esbuildConfig);
-    await ctx.watch();
+    const workerCtx = await esbuild.context(workerEsbuildConfig);
+    await Promise.all([ctx.watch(), workerCtx.watch()]);
   } else if (flags.includes("--notify")) {
     const inFile = esbuildConfig.entryPoints[0];
     const outFile = esbuildConfig.outfile;
+    const workerOut = workerEsbuildConfig.outfile;
 
     // The watcher automatically notices changes to source files
     // so the only thing it needs to be notified about is if the
     // output file gets removed.
-    if (fs.existsSync(outFile)) {
+    if (fs.existsSync(outFile) && fs.existsSync(workerOut)) {
       console.log("VS Code Extension esbuild up to date");
       return;
     }
@@ -81,5 +104,7 @@ void (async () => {
     writeBuildTimestamp();
   } else {
     await esbuild.build(esbuildConfig);
+    await esbuild.build(workerEsbuildConfig);
+    console.log("VS Code Extension MiniLM worker esbuild complete");
   }
 })();
