@@ -85,7 +85,7 @@ class MiniLmWorkerClient {
       }
     });
     worker.on("error", (err) => {
-      this.failAll(err);
+      this.failAll(err instanceof Error ? err : new Error(String(err)));
     });
     worker.on("exit", (code) => {
       if (code !== 0) {

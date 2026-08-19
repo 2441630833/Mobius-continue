@@ -38,14 +38,11 @@ function getExtractor() {
       env.allowLocalModels = true;
       env.allowRemoteModels = false;
       env.localModelPath = localModelPath();
-      const inst = await pipeline("feature-extraction", "all-MiniLM-L6-v2");
+      const ex = await pipeline("feature-extraction", "all-MiniLM-L6-v2");
       const ready: ReadyMessage = { type: "ready" };
       parentPort?.postMessage(ready);
-      return inst;
-    })().catch((err) => {
-      extractorPromise = null;
-      throw err;
-    });
+      return ex;
+    })();
   }
   return extractorPromise;
 }
