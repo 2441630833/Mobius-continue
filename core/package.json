@@ -64,6 +64,7 @@
     "@continuedev/llm-info": "file:../packages/llm-info",
     "@continuedev/openai-adapters": "file:../packages/openai-adapters",
     "@continuedev/terminal-security": "file:../packages/terminal-security",
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@mozilla/readability": "^0.6.0",
     "@octokit/rest": "^20.1.1",
@@ -131,5 +132,11 @@
   },
   "overrides": {
     "tar": "^7.5.13"
+  },
+  "allowScripts": {
+    "sharp@0.32.6": true,
+    "sharp@0.34.5": true,
+    "onnxruntime-node@1.14.0": true,
+    "onnxruntime-node@1.24.3": true
   }
 }
