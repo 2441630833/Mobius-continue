@@ -25,7 +25,10 @@ describe("agentAutoApprove", () => {
     expect(isAgentTaskAutoApproveEnabled("chat")).toBe(false);
   });
 
-  it("enables agent task auto-approve only in agent mode", () => {
+  it("enables agent task auto-approve in agent, game, and chip modes", () => {
     expect(isAgentTaskAutoApproveEnabled("agent")).toBe(true);
+    expect(isAgentTaskAutoApproveEnabled("game")).toBe(true);
+    expect(isAgentTaskAutoApproveEnabled("chip")).toBe(true);
+    expect(isAgentTaskAutoApproveEnabled("plan")).toBe(false);
   });
 });

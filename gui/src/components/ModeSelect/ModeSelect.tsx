@@ -40,6 +40,8 @@ export function ModeSelect() {
       dispatch(setMode("agent"));
     } else if (mode === "agent") {
       dispatch(setMode("game"));
+    } else if (mode === "game") {
+      dispatch(setMode("chip"));
     } else {
       dispatch(setMode("chat"));
     }
@@ -110,7 +112,9 @@ export function ModeSelect() {
               ? "Agent"
               : mode === "game"
                 ? "Game"
-                : "Plan"}
+                : mode === "chip"
+                  ? "Chip"
+                  : "Plan"}
           </span>
           <ChevronDownIcon
             className="h-2 w-2 flex-shrink-0"
@@ -195,6 +199,25 @@ export function ModeSelect() {
             {!isGoodAtAgentMode && notGreatAtAgent("Game")}
             <CheckIcon
               className={`ml-auto h-3 w-3 ${mode === "game" ? "" : "opacity-0"}`}
+            />
+          </ListboxOption>
+
+          <ListboxOption value="chip" className={"gap-1"}>
+            <div className="flex flex-row items-center gap-1.5">
+              <ModeIcon mode="chip" />
+              <span className="">Chip</span>
+              <ToolTip
+                style={{
+                  zIndex: 200001,
+                }}
+                content="FPGA chip-design loop: synthesize, flash Arty A7, sample tokens from hardware thermal noise over UART"
+              >
+                <InformationCircleIcon className="h-2.5 w-2.5 flex-shrink-0" />
+              </ToolTip>
+            </div>
+            {!isGoodAtAgentMode && notGreatAtAgent("Chip")}
+            <CheckIcon
+              className={`ml-auto h-3 w-3 ${mode === "chip" ? "" : "opacity-0"}`}
             />
           </ListboxOption>
 
