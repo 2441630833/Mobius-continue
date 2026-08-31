@@ -1,5 +1,9 @@
+/**
+ * GLM-OCR client — runs inference in a forked Node process so onnxruntime-node
+ * does not share the Electron extension-host with MiniLM's worker_threads ORT.
+ */
+import { ChildProcess, fork } from "child_process";
 import path from "path";
-import { Worker } from "worker_threads";
 
 export type GlmOcrRequest = {
   base64: string;
@@ -14,8 +18,8 @@ type WorkerResponse =
   | { id: number; ok: true; text: string }
   | { id: number; ok: false; error: string };
 
-class GlmOcrWorkerClient {
-  private worker: Worker | null = null;
+class GlmOcrForkClient {
+  private child: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<
     number,
@@ -31,22 +35,27 @@ class GlmOcrWorkerClient {
   constructor(private readonly localModelPath: string) {}
 
   async ocr(request: GlmOcrRequest): Promise<string> {
-    const worker = this.ensureWorker();
+    const child = this.ensureChild();
     const id = this.nextId++;
     return new Promise<string>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.queue.push({ id, request });
-      this.flushQueue(worker);
+      this.flushQueue(child);
     });
   }
 
-  private flushQueue(worker: Worker) {
-    if (!this.ready) {
+  /** Kill the child and reject in-flight work (e.g. parent timeout). */
+  reset(reason = "GLM-OCR canceled"): void {
+    this.failAll(new Error(reason));
+  }
+
+  private flushQueue(child: ChildProcess) {
+    if (!this.ready || !child.connected) {
       return;
     }
     while (this.queue.length > 0) {
       const job = this.queue.shift()!;
-      worker.postMessage({
+      child.send({
         id: job.id,
         op: "ocr",
         base64: job.request.base64,
@@ -57,23 +66,28 @@ class GlmOcrWorkerClient {
     }
   }
 
-  private ensureWorker(): Worker {
+  private ensureChild(): ChildProcess {
     if (this.failed) {
       throw new Error("GLM-OCR worker unavailable");
     }
-    if (this.worker) {
-      return this.worker;
+    if (this.child && !this.child.killed) {
+      return this.child;
     }
     const workerPath = resolveWorkerPath();
     if (!workerPath) {
       this.failed = true;
       throw new Error("GLM-OCR worker bundle not found");
     }
-    const worker = new Worker(workerPath, {
-      workerData: { localModelPath: this.localModelPath },
-      env: workerNodeEnv(),
+
+    const env = workerNodeEnv(this.localModelPath);
+    const child = fork(workerPath, [], {
+      env,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      // Electron extension host: fork(Mobius.exe) without this opens a new UI.
+      execArgv: [],
     });
-    worker.on("message", (msg: WorkerResponse) => {
+
+    child.on("message", (msg: WorkerResponse) => {
       if (!msg || typeof msg !== "object") {
         return;
       }
@@ -83,7 +97,12 @@ class GlmOcrWorkerClient {
       }
       if ("type" in msg && msg.type === "ready") {
         this.ready = true;
-        this.flushQueue(worker);
+        if ("device" in msg && typeof (msg as { device?: string }).device === "string") {
+          console.log(
+            `[MobiusOCR] child ready device=${(msg as { device: string }).device}`,
+          );
+        }
+        this.flushQueue(child);
         return;
       }
       if ("id" in msg) {
@@ -99,43 +118,82 @@ class GlmOcrWorkerClient {
         }
       }
     });
-    worker.on("error", (err) => {
+    child.on("error", (err) => {
       this.failAll(err instanceof Error ? err : new Error(String(err)));
     });
-    worker.on("exit", (code) => {
-      if (code !== 0) {
-        this.failAll(new Error(`GLM-OCR worker exited with code ${code}`));
+    child.on("exit", (code, signal) => {
+      if (this.pending.size > 0 || this.queue.length > 0) {
+        this.failAll(
+          new Error(
+            `GLM-OCR process exited (code=${code ?? "null"} signal=${signal ?? "null"})`,
+          ),
+        );
+      } else {
+        this.child = null;
+        this.ready = false;
       }
     });
-    this.worker = worker;
+    child.stderr?.on("data", (buf: Buffer) => {
+      const line = buf.toString("utf8").trim();
+      if (line) {
+        console.warn(`[MobiusOCR] child stderr: ${line.slice(0, 500)}`);
+      }
+    });
+
+    this.child = child;
+    this.ready = false;
     console.log(
-      `[MobiusOCR] GLM-OCR worker_threads pid-thread at ${workerPath}`,
+      `[MobiusOCR] GLM-OCR forked pid=${child.pid} at ${workerPath} (ELECTRON_RUN_AS_NODE)`,
     );
-    return worker;
+    return child;
   }
 
   private failAll(err: Error) {
     this.failed = true;
+    this.ready = false;
     for (const pending of this.pending.values()) {
       pending.reject(err);
     }
     this.pending.clear();
     this.queue.length = 0;
-    try {
-      this.worker?.terminate();
-    } catch {
-      /* ignore */
+    const child = this.child;
+    this.child = null;
+    if (child && !child.killed) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      setTimeout(() => {
+        try {
+          if (!child.killed) {
+            child.kill("SIGKILL");
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 2_000).unref?.();
     }
-    this.worker = null;
+    // Allow a later request to spawn a fresh process.
+    this.failed = false;
   }
 }
 
-let sharedClient: GlmOcrWorkerClient | null = null;
+let sharedClient: GlmOcrForkClient | null = null;
 
-function workerNodeEnv(): NodeJS.Dict<string> {
+function workerNodeEnv(localModelPath: string): NodeJS.Dict<string> {
   const fs = require("fs") as typeof import("fs");
   const extra = [
+    // Worker lives in out/ — prefer out/node_modules for @huggingface/transformers.
+    path.join(__dirname, "node_modules"),
     path.join(__dirname, "..", "node_modules"),
+    path.join(
+      __dirname,
+      "node_modules",
+      "@huggingface",
+      "transformers",
+      "node_modules",
+    ),
     path.join(
       __dirname,
       "..",
@@ -158,6 +216,12 @@ function workerNodeEnv(): NodeJS.Dict<string> {
     : [];
   return {
     ...process.env,
+    ELECTRON_RUN_AS_NODE: "1",
+    GLM_OCR_LOCAL_MODEL_PATH: localModelPath,
+    // Mild cap — full default can oversubscribe; 1 was too slow for the 180s UI budget.
+    OMP_NUM_THREADS: process.env.OMP_NUM_THREADS ?? "4",
+    ORT_INTRA_OP_NUM_THREADS: process.env.ORT_INTRA_OP_NUM_THREADS ?? "4",
+    ORT_INTER_OP_NUM_THREADS: process.env.ORT_INTER_OP_NUM_THREADS ?? "1",
     NODE_PATH: [...extra, ...existing].filter(Boolean).join(path.delimiter),
   };
 }
@@ -191,11 +255,23 @@ function resolveLocalModelPath(): string {
   );
 }
 
+function getSharedClient(): GlmOcrForkClient {
+  if (!sharedClient) {
+    sharedClient = new GlmOcrForkClient(resolveLocalModelPath());
+  }
+  return sharedClient;
+}
+
 export async function runGlmOcrViaWorker(
   request: GlmOcrRequest,
 ): Promise<string> {
+  return getSharedClient().ocr(request);
+}
+
+/** Terminate in-flight OCR (timeout / cancel). Next call spawns a fresh process. */
+export function cancelGlmOcrViaWorker(reason?: string): void {
   if (!sharedClient) {
-    sharedClient = new GlmOcrWorkerClient(resolveLocalModelPath());
+    return;
   }
-  return sharedClient.ocr(request);
+  sharedClient.reset(reason ?? "GLM-OCR canceled");
 }
