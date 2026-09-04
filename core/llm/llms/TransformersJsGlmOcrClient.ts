@@ -18,6 +18,9 @@ type WorkerResponse =
   | { id: number; ok: true; text: string }
   | { id: number; ok: false; error: string };
 
+/** How long to wait for the forked worker to finish ONNX init + warmup. */
+const GLM_OCR_READY_TIMEOUT_MS = 45_000;
+
 class GlmOcrForkClient {
   private child: ChildProcess | null = null;
   private nextId = 1;
@@ -27,6 +30,7 @@ class GlmOcrForkClient {
   >();
   private failed = false;
   private ready = false;
+  private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly queue: Array<{
     id: number;
     request: GlmOcrRequest;
@@ -87,17 +91,35 @@ class GlmOcrForkClient {
       execArgv: [],
     });
 
+    this.clearReadyTimer();
+    this.readyTimer = setTimeout(() => {
+      if (this.ready || this.child !== child) {
+        return;
+      }
+      this.failAll(
+        new Error(
+          `GLM-OCR worker did not become ready within ${GLM_OCR_READY_TIMEOUT_MS}ms (ONNX init hang or missing models). Set MOBIUS_GLM_OCR_DEVICE=cpu if GPU EPs fail.`,
+        ),
+      );
+    }, GLM_OCR_READY_TIMEOUT_MS);
+    this.readyTimer.unref?.();
+
     child.on("message", (msg: WorkerResponse) => {
       if (!msg || typeof msg !== "object") {
         return;
       }
       if ("type" in msg && msg.type === "init-error") {
+        this.clearReadyTimer();
         this.failAll(new Error(msg.error));
         return;
       }
       if ("type" in msg && msg.type === "ready") {
+        this.clearReadyTimer();
         this.ready = true;
-        if ("device" in msg && typeof (msg as { device?: string }).device === "string") {
+        if (
+          "device" in msg &&
+          typeof (msg as { device?: string }).device === "string"
+        ) {
           console.log(
             `[MobiusOCR] child ready device=${(msg as { device: string }).device}`,
           );
@@ -148,7 +170,15 @@ class GlmOcrForkClient {
     return child;
   }
 
+  private clearReadyTimer() {
+    if (this.readyTimer) {
+      clearTimeout(this.readyTimer);
+      this.readyTimer = null;
+    }
+  }
+
   private failAll(err: Error) {
+    this.clearReadyTimer();
     this.failed = true;
     this.ready = false;
     for (const pending of this.pending.values()) {

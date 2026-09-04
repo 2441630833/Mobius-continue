@@ -130,13 +130,14 @@ function deviceCandidates(): OcrDevice[] {
 
   switch (process.platform) {
     case "win32":
-      // WebGPU first: DirectML often loads q4f16 then fails MultiHeadAttention on GLM-OCR.
-      // Still try dml second (may work on future ORT / other adapters), then CPU.
-      return ["webgpu", "dml", "cpu"];
+      // CPU first: WebGPU/DML under ELECTRON_RUN_AS_NODE often hang or refuse
+      // a local GPU IPC socket (net::ERR_CONNECTION_REFUSED) until the 180s UI
+      // timeout. GPU EPs remain as optional upgrades after a working CPU path.
+      return ["cpu", "webgpu", "dml"];
     case "linux":
-      return ["cuda", "webgpu", "cpu"];
+      return ["cpu", "cuda", "webgpu"];
     case "darwin":
-      return ["coreml", "webgpu", "cpu"];
+      return ["cpu", "coreml", "webgpu"];
     default:
       return ["cpu"];
   }
@@ -147,7 +148,7 @@ async function disposeModel(model: GlmModel | null | undefined): Promise<void> {
     return;
   }
   try {
-    await (model as { dispose?: () => Promise<void> | void }).dispose?.();
+    await (model as unknown as { dispose?: () => unknown }).dispose?.();
   } catch {
     /* ignore dispose errors between EP attempts */
   }
