@@ -268,7 +268,10 @@ export type SessionState = {
   id: string;
   streamAborter: AbortController;
   mainEditorContentTrigger?: JSONContent | undefined;
+  /** Current chat's main input draft (resolved from chatDrafts for the active session). */
   mainEditorDraftContent?: JSONContent | undefined;
+  /** Per-session main input drafts so unsent prompts survive navigating away and back. */
+  chatDrafts: Record<string, JSONContent | undefined>;
   symbols: FileSymbolMap;
   mode: MessageModes;
   isInEdit: boolean;
@@ -297,6 +300,7 @@ export const INITIAL_SESSION_STATE: SessionState = {
   symbols: {},
   mode: "agent",
   isInEdit: false,
+  chatDrafts: {},
   chatModelTitle: null,
   codeBlockApplyStates: {
     states: [],
@@ -402,9 +406,16 @@ export const sessionSlice = createSlice({
       action: PayloadAction<JSONContent | undefined>,
     ) => {
       state.mainEditorDraftContent = action.payload;
+      // Persist per-session so it survives switching away and back.
+      if (state.id) {
+        state.chatDrafts[state.id] = action.payload;
+      }
     },
     clearMainEditorDraftContent: (state) => {
       state.mainEditorDraftContent = undefined;
+      if (state.id) {
+        state.chatDrafts[state.id] = undefined;
+      }
     },
     updateFileSymbols: (state, action: PayloadAction<FileSymbolMap>) => {
       state.symbols = {
@@ -766,7 +777,7 @@ export const sessionSlice = createSlice({
       state.inlineErrorMessage = undefined;
       state.isPruned = false;
       state.contextPercentage = undefined;
-      state.mainEditorDraftContent = undefined;
+      // Keep chatDrafts so each chat's unsent input survives switching away/back.
 
       if (payload) {
         state.history = payload.history as any;
@@ -782,6 +793,8 @@ export const sessionSlice = createSlice({
         state.id = uuidv4();
         state.chatModelTitle = null;
       }
+      // Resolve the draft for the now-active session.
+      state.mainEditorDraftContent = state.chatDrafts[state.id];
     },
     /**
      * Swap the visible session without aborting any in-flight stream.
@@ -804,8 +817,9 @@ export const sessionSlice = createSlice({
         state.inlineErrorMessage = undefined;
         state.isPruned = false;
         state.contextPercentage = undefined;
-        state.mainEditorDraftContent = undefined;
         state.chatModelTitle = null;
+        // Fresh blank tab starts with no draft.
+        state.mainEditorDraftContent = state.chatDrafts[state.id];
         return;
       }
 
@@ -829,8 +843,9 @@ export const sessionSlice = createSlice({
       state.inlineErrorMessage = undefined;
       state.isPruned = false;
       state.contextPercentage = undefined;
-      state.mainEditorDraftContent = undefined;
       state.chatModelTitle = session.chatModelTitle ?? null;
+      // Resolve this session's unsent draft (persisted in-memory).
+      state.mainEditorDraftContent = state.chatDrafts[state.id];
       if (session.mode) {
         state.mode = session.mode;
       }

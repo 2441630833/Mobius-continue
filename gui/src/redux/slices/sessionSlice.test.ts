@@ -3,7 +3,11 @@ import { renderChatMessage } from "core/util/messageContent";
 import { v4 as uuidv4 } from "uuid";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addToolCallDeltaToState } from "../../util/toolCallState";
-import { ChatHistoryItemWithMessageId, sessionSlice } from "./sessionSlice";
+import {
+  ChatHistoryItemWithMessageId,
+  SessionState,
+  sessionSlice,
+} from "./sessionSlice";
 
 // Mock dependencies
 vi.mock("uuid");
@@ -76,6 +80,7 @@ describe("sessionSlice streamUpdate", () => {
     newestToolbarPreviewForInput: {},
     isSessionMetadataLoading: false,
     compactionLoading: {},
+    chatDrafts: {},
   });
 
   describe("Basic Chat Message", () => {
@@ -449,6 +454,67 @@ describe("sessionSlice streamUpdate", () => {
       expect(newState.history).toHaveLength(2);
       expect(newState.history[1].message.role).toBe("assistant");
       expect(newState.history[1].toolCallStates).toHaveLength(1);
+    });
+  });
+
+  describe("Per-chat input draft persistence", () => {
+    it("should restore the draft when returning to the same session", () => {
+      let state: SessionState = createInitialState() as SessionState;
+      state.id = "session-A";
+
+      // Type a prompt but do not send it.
+      state = sessionSlice.reducer(state, {
+        type: "session/setMainEditorDraftContent",
+        payload: { type: "doc", content: [{ type: "text", text: "hello" }] },
+      });
+      expect(state.chatDrafts["session-A"]).toBeDefined();
+
+      // Navigate away to another session (disk-loaded path).
+      state = sessionSlice.reducer(state, {
+        type: "session/replaceSession",
+        payload: { sessionId: "session-B", title: "B", history: [] },
+      });
+      expect(state.id).toBe("session-B");
+
+      // Navigate back to the original new chat.
+      state = sessionSlice.reducer(state, {
+        type: "session/replaceSession",
+        payload: { sessionId: "session-A", title: "A", history: [] },
+      });
+      expect(state.id).toBe("session-A");
+      expect(state.mainEditorDraftContent).toEqual({
+        type: "doc",
+        content: [{ type: "text", text: "hello" }],
+      });
+    });
+
+    it("should restore the draft when opening a fresh new session and coming back", () => {
+      let state: SessionState = createInitialState() as SessionState;
+      state.id = "session-A";
+
+      state = sessionSlice.reducer(state, {
+        type: "session/setMainEditorDraftContent",
+        payload: { type: "doc", content: [{ type: "text", text: "draft" }] },
+      });
+
+      // Open a brand new chat.
+      state = sessionSlice.reducer(state, {
+        type: "session/newSession",
+        payload: undefined,
+      });
+      expect(state.history).toHaveLength(0);
+      expect(state.mainEditorDraftContent).toBeUndefined();
+
+      // Come back to the previous session.
+      state = sessionSlice.reducer(state, {
+        type: "session/newSession",
+        payload: { sessionId: "session-A", title: "A", history: [] },
+      });
+      expect(state.id).toBe("session-A");
+      expect(state.mainEditorDraftContent).toEqual({
+        type: "doc",
+        content: [{ type: "text", text: "draft" }],
+      });
     });
   });
 });
