@@ -168,6 +168,8 @@ class EmbeddingsPipeline {
   static task: PipelineType = "feature-extraction";
   static model = "all-MiniLM-L6-v2";
   static instance: any | null = null;
+  /** Set once in-process init fails so we never retry it (retrying wedges the host). */
+  static instanceError: string | null = null;
   static workerClient: MiniLmWorkerClient | null = null;
   static workerDisabled = false;
   /** Interactive jobs (agent @codebase query) run before background indexing. */
@@ -204,19 +206,32 @@ class EmbeddingsPipeline {
   }
 
   static async getInstance() {
-    if (EmbeddingsPipeline.instance === null) {
-      // @ts-ignore
-      // prettier-ignore
-      const { env, pipeline } = await import("../../vendor/modules/@xenova/transformers/src/transformers.js");
-
-      env.allowLocalModels = true;
-      env.allowRemoteModels = false;
-      env.localModelPath = resolveLocalModelPath();
-
-      EmbeddingsPipeline.instance = await pipeline(
-        EmbeddingsPipeline.task,
-        EmbeddingsPipeline.model,
+    if (EmbeddingsPipeline.instanceError) {
+      // Fail fast. Retrying a broken ONNX backend per chunk-group blocks the
+      // extension host for minutes and makes chat requests look like they hang.
+      throw new Error(
+        `Transformers.js embeddings unavailable (in-process): ${EmbeddingsPipeline.instanceError}`,
       );
+    }
+    if (EmbeddingsPipeline.instance === null) {
+      try {
+        // @ts-ignore
+        // prettier-ignore
+        const { env, pipeline } = await import("../../vendor/modules/@xenova/transformers/src/transformers.js");
+
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+        env.localModelPath = resolveLocalModelPath();
+
+        EmbeddingsPipeline.instance = await pipeline(
+          EmbeddingsPipeline.task,
+          EmbeddingsPipeline.model,
+        );
+      } catch (err) {
+        EmbeddingsPipeline.instanceError =
+          err instanceof Error ? err.message : String(err);
+        throw err;
+      }
     }
 
     return EmbeddingsPipeline.instance;
@@ -257,8 +272,9 @@ class EmbeddingsPipeline {
         (!EmbeddingsPipeline.backgroundPaused &&
           EmbeddingsPipeline.low.length > 0)
       ) {
-        const job = EmbeddingsPipeline.high.shift()
-          ?? (EmbeddingsPipeline.backgroundPaused
+        const job =
+          EmbeddingsPipeline.high.shift() ??
+          (EmbeddingsPipeline.backgroundPaused
             ? undefined
             : EmbeddingsPipeline.low.shift());
         if (!job) {
