@@ -235,7 +235,9 @@ export async function getSymbolsForFile(
 
   let tree: Parser.Tree;
   try {
-    tree = parser.parse(contents);
+    // Same \r\n guard as codeChunker: some grammars can loop forever on CRLF
+    // input, which would freeze the extension host.
+    tree = parser.parse(contents.replace(/\r\n/g, "\n"));
   } catch (e) {
     console.log(`Error parsing file: ${filepath}`);
     return;

@@ -1,3 +1,5 @@
+import { isMainThread } from "worker_threads";
+
 import { Chunk, ChunkWithoutID } from "../../index.js";
 import { countTokensAsync } from "../../llm/countTokens.js";
 import { supportedLanguages } from "../../util/treeSitter.js";
@@ -5,6 +7,7 @@ import { getUriFileExtension, getUriPathBasename } from "../../util/uri.js";
 
 import { basicChunker } from "./basic.js";
 import { codeChunker } from "./code.js";
+import { chunkInWorker } from "./chunkWorkerClient.js";
 
 export type ChunkDocumentParam = {
   filepath: string;
@@ -38,6 +41,22 @@ export async function* chunkDocumentWithoutId(
     extension in supportedLanguages &&
     !NON_CODE_EXTENSIONS.includes(extension)
   ) {
+    // Preferred path: chunk on a worker thread with a hard timeout. A
+    // pathological file can make tree-sitter's WASM parser loop forever;
+    // on the main thread that froze the entire extension host (all chat
+    // requests stopped producing output). On worker timeout/error we fall
+    // through to the main-thread codeChunker, then to basicChunker.
+    if (process.env.NODE_ENV !== "test" && isMainThread) {
+      try {
+        const chunks = await chunkInWorker(fileUri, contents, maxChunkSize);
+        yield* chunks;
+        return;
+      } catch (e: any) {
+        console.warn(
+          `[MobiusChunk] worker chunking failed for ${fileUri}, falling back to main thread: ${e?.message ?? e}`,
+        );
+      }
+    }
     try {
       for await (const chunk of codeChunker(fileUri, contents, maxChunkSize)) {
         yield chunk;

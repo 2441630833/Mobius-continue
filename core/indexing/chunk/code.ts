@@ -257,7 +257,17 @@ export async function* codeChunker(
     throw new Error(`Failed to load parser for file ${filepath}: `);
   }
 
-  const tree = parser.parse(contents);
+  // Some tree-sitter grammars (notably bash) can spin forever on \r\n input,
+  // freezing the extension-host main thread (observed with a 642-byte CRLF
+  // Docker healthcheck script). Normalize to \n before parsing; line numbers
+  // and columns are unaffected because \r only appears at line ends.
+  const normalizedContents = contents.replace(/\r\n/g, "\n");
 
-  yield* getSmartCollapsedChunks(tree.rootNode, contents, maxChunkSize);
+  const tree = parser.parse(normalizedContents);
+
+  yield* getSmartCollapsedChunks(
+    tree.rootNode,
+    normalizedContents,
+    maxChunkSize,
+  );
 }
