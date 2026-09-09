@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "path";
+import { isMainThread } from "worker_threads";
 
 import Parser, { Language } from "web-tree-sitter";
-import { FileSymbolMap, IDE, SymbolWithRange } from "..";
+import { ChunkWithoutID, FileSymbolMap, IDE, SymbolWithRange } from "..";
+import {
+  symbolsInWorker,
+  snippetsInWorker,
+} from "../indexing/chunk/chunkWorkerClient.js";
 import { getUriFileExtension } from "./uri";
 
 export enum LanguageName {
@@ -118,17 +123,37 @@ export const IGNORE_PATH_PATTERNS: Partial<Record<LanguageName, RegExp[]>> = {
   [LanguageName.JAVASCRIPT]: [/.*node_modules/],
 };
 
+// A Parser allocates on the shared tree-sitter WASM heap and web-tree-sitter
+// never frees it on GC (no FinalizationRegistry). Creating one per call leaked
+// that heap until `ts_parser_new_wasm` wedged inside malloc and froze the
+// extension host (observed 2026-09-09: exthost stuck in
+// malloc <- calloc <- ts_parser_new_wasm <- Parser.init <- getParserForFile
+// a few minutes after codebase indexing resumed). Parsers are reusable
+// across sequential parse() calls on the same thread, so pool one per
+// language instead of allocating per call.
+const nameToParser = new Map<string, Parser>();
+
 export async function getParserForFile(filepath: string) {
   try {
     await Parser.init();
-    const parser = new Parser();
+
+    const extension = getUriFileExtension(filepath);
+    const languageName = supportedLanguages[extension];
+    if (!languageName) {
+      return undefined;
+    }
 
     const language = await getLanguageForFile(filepath);
     if (!language) {
       return undefined;
     }
 
-    parser.setLanguage(language);
+    let parser = nameToParser.get(languageName);
+    if (!parser) {
+      parser = new Parser();
+      parser.setLanguage(language);
+      nameToParser.set(languageName, parser);
+    }
 
     return parser;
   } catch (e) {
@@ -224,7 +249,11 @@ const GET_SYMBOLS_FOR_NODE_TYPES: Parser.SyntaxNode["type"][] = [
   // "arrow_function",
 ];
 
-export async function getSymbolsForFile(
+/**
+ * Pure main-thread symbol extraction on the pooled parser. Used as the
+ * worker fallback by getSymbolsForFile, and directly inside chunkWorker.
+ */
+export async function computeSymbolsForFile(
   filepath: string,
   contents: string,
 ): Promise<SymbolWithRange[] | undefined> {
@@ -291,6 +320,122 @@ export async function getSymbolsForFile(
   }
   findNamedNodesRecursive(tree.rootNode);
   return symbols;
+}
+
+export async function getSymbolsForFile(
+  filepath: string,
+  contents: string,
+): Promise<SymbolWithRange[] | undefined> {
+  // Worker-first: indexing walks thousands of files, so keep tree-sitter off
+  // the extension-host loop (same isolation as chunking). Falls back to the
+  // pooled main-thread parser if the worker is unavailable.
+  if (process.env.NODE_ENV !== "test" && isMainThread) {
+    try {
+      return await symbolsInWorker(filepath, contents);
+    } catch (e) {
+      console.warn(
+        `[MobiusTreeSitter] symbols worker failed for ${filepath}, falling back to main thread: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+    }
+  }
+  return computeSymbolsForFile(filepath, contents);
+}
+
+// ─── Code snippets (moved from CodeSnippetsIndex so the worker can reuse it) ──
+
+export type SnippetChunk = ChunkWithoutID & {
+  title: string;
+  signature: string;
+};
+
+function snippetsFromMatch(match: Parser.QueryMatch): SnippetChunk {
+  const bodyTypesToTreatAsSignatures = [
+    "interface_declaration", // TypeScript, Java
+    "struct_item", // Rust
+    "type_spec", // Go
+  ];
+
+  const bodyCaptureGroupPrefixes = ["definition", "reference"];
+
+  let title = "",
+    content = "",
+    signature = "",
+    startLine = 0,
+    endLine = 0,
+    hasSeenBody = false;
+
+  // This loop assumes that the ordering of the capture groups is representative
+  // of the structure of the language, e.g. for a TypeScript match on a function,
+  // `function myFunc(param: string): string`, the first capture would be the `myFunc`
+  // the second capture would be the `(param: string)`, etc
+  for (const { name, node } of match.captures) {
+    // Assume we are capturing groups using a dot syntax for more precise groupings
+    // However, for this case, we only care about the first substring
+    const trimmedCaptureName = name.split(".")[0];
+
+    const nodeText = node.text;
+    const nodeType = node.type;
+
+    if (bodyCaptureGroupPrefixes.includes(trimmedCaptureName)) {
+      if (bodyTypesToTreatAsSignatures.includes(nodeType)) {
+        // Note we override whatever existing value there is here
+        signature = nodeText;
+        hasSeenBody = true;
+      }
+
+      content = nodeText;
+      startLine = node.startPosition.row;
+      endLine = node.endPosition.row;
+    } else {
+      if (trimmedCaptureName === "name") {
+        title = nodeText;
+      }
+
+      if (!hasSeenBody) {
+        signature += nodeText + " ";
+
+        if (trimmedCaptureName === "comment") {
+          signature += "\n";
+        }
+      }
+    }
+  }
+
+  return { title, content, signature, startLine, endLine };
+}
+
+/**
+ * Pure main-thread snippet extraction on the pooled parser. Used as the
+ * worker fallback by CodeSnippetsIndex.getSnippetsInFile, and directly
+ * inside chunkWorker.
+ */
+export async function computeSnippetsForFile(
+  filepath: string,
+  contents: string,
+): Promise<SnippetChunk[]> {
+  const parser = await getParserForFile(filepath);
+  if (!parser) {
+    return [];
+  }
+
+  // Same \r\n guard as codeChunker (row positions are unaffected by this).
+  const ast = parser.parse(contents.replace(/\r\n/g, "\n"));
+
+  const language = getFullLanguageName(filepath);
+  if (!language) {
+    return [];
+  }
+  const query = await getQueryForFile(
+    filepath,
+    `code-snippet-queries/${language}.scm`,
+  );
+  const matches = query?.matches(ast.rootNode);
+  if (!matches) {
+    return [];
+  }
+  return matches.map(snippetsFromMatch);
 }
 
 export async function getSymbolsForManyFiles(

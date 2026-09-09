@@ -1,11 +1,8 @@
-import Parser from "web-tree-sitter";
+import { isMainThread } from "worker_threads";
 
 import { migrate } from "../util/paths";
-import {
-  getFullLanguageName,
-  getParserForFile,
-  getQueryForFile,
-} from "../util/treeSitter";
+import { computeSnippetsForFile } from "../util/treeSitter";
+import { snippetsInWorker } from "./chunk/chunkWorkerClient";
 
 import { DatabaseConnection, SqliteDb } from "./refreshIndex";
 import {
@@ -123,89 +120,25 @@ export class CodeSnippetsCodebaseIndex implements CodebaseIndex {
     });
   }
 
-  private getSnippetsFromMatch(match: Parser.QueryMatch): SnippetChunk {
-    const bodyTypesToTreatAsSignatures = [
-      "interface_declaration", // TypeScript, Java
-      "struct_item", // Rust
-      "type_spec", // Go
-    ];
-
-    const bodyCaptureGroupPrefixes = ["definition", "reference"];
-
-    let title = "",
-      content = "",
-      signature = "",
-      startLine = 0,
-      endLine = 0,
-      hasSeenBody = false;
-
-    // This loop assumes that the ordering of the capture groups is represenatative
-    // of the structure of the language, e.g. for a TypeScript match on a function,
-    // `function myFunc(param: string): string`, the first capture would be the `myFunc`
-    // the second capture would be the `(param: string)`, etc
-    for (const { name, node } of match.captures) {
-      // Assume we are capturing groups using a dot syntax for more precise groupings
-      // However, for this case, we only care about the first substring
-      const trimmedCaptureName = name.split(".")[0];
-
-      const nodeText = node.text;
-      const nodeType = node.type;
-
-      if (bodyCaptureGroupPrefixes.includes(trimmedCaptureName)) {
-        if (bodyTypesToTreatAsSignatures.includes(nodeType)) {
-          // Note we override whatever existing value there is here
-          signature = nodeText;
-          hasSeenBody = true;
-        }
-
-        content = nodeText;
-        startLine = node.startPosition.row;
-        endLine = node.endPosition.row;
-      } else {
-        if (trimmedCaptureName === "name") {
-          title = nodeText;
-        }
-
-        if (!hasSeenBody) {
-          signature += nodeText + " ";
-
-          if (trimmedCaptureName === "comment") {
-            signature += "\n";
-          }
-        }
-      }
-    }
-
-    return { title, content, signature, startLine, endLine };
-  }
-
   async getSnippetsInFile(
     filepath: string,
     contents: string,
   ): Promise<SnippetChunk[]> {
-    const parser = await getParserForFile(filepath);
-
-    if (!parser) {
-      return [];
+    // Worker-first: same tree-sitter isolation as chunking. The snippet
+    // extraction itself lives in core/util/treeSitter.ts (computeSnippets-
+    // ForFile) so this worker and the fallback below share one implementation.
+    if (process.env.NODE_ENV !== "test" && isMainThread) {
+      try {
+        return await snippetsInWorker(filepath, contents);
+      } catch (e) {
+        console.warn(
+          `[MobiusTreeSitter] snippets worker failed for ${filepath}, falling back to main thread: ${
+            e instanceof Error ? e.message : e
+          }`,
+        );
+      }
     }
-
-    const ast = parser.parse(contents);
-
-    const language = getFullLanguageName(filepath);
-    if (!language) {
-      return [];
-    }
-    const query = await getQueryForFile(
-      filepath,
-      `code-snippet-queries/${language}.scm`,
-    );
-    const matches = query?.matches(ast.rootNode);
-
-    if (!matches) {
-      return [];
-    }
-
-    return matches.map(this.getSnippetsFromMatch);
+    return computeSnippetsForFile(filepath, contents);
   }
 
   async *update(

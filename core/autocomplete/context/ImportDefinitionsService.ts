@@ -65,7 +65,10 @@ export class ImportDefinitionsService {
       return null;
     }
 
-    const ast = parser.parse(fileContents, undefined, {
+    // Same \r\n guard as codeChunker: some grammars can loop forever on CRLF
+    // input. Row positions are unaffected by the normalization, so the
+    // gotoDefinition calls below stay correct.
+    const ast = parser.parse(fileContents.replace(/\r\n/g, "\n"), undefined, {
       includedRanges: [
         {
           startIndex: 0,
