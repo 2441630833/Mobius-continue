@@ -42,6 +42,71 @@ function exactMatch(
 }
 
 /**
+ * Line-ending normalized matching strategy.
+ *
+ * On Windows many files use CRLF, while LLMs consistently emit \n in
+ * old_string. Without this strategy a multi-line old_string never matches a
+ * CRLF file exactly and falls all the way through to whitespaceIgnoredMatch,
+ * which strips *all* whitespace and therefore matches far too broadly (or
+ * matches several places and hard-fails with "appears N times").
+ *
+ * Both sides are normalized to \n and the hit is mapped back onto the original
+ * string, so the match stays exact with respect to the actual characters.
+ */
+function lineEndingNormalizedMatch(
+  fileContent: string,
+  searchContent: string,
+): BasicMatchResult | null {
+  // Fast path: nothing to normalize when the file contains no CR at all.
+  if (!fileContent.includes("\r")) {
+    return null;
+  }
+
+  const normalizedSearch = searchContent.replace(/\r\n?/g, "\n");
+
+  // Cheap path: most CRLF files use CRLF uniformly, so converting the search
+  // string to CRLF and doing a plain indexOf succeeds without building an
+  // index map over (potentially large) file contents.
+  const crlfSearch = normalizedSearch.replace(/\n/g, "\r\n");
+  const crlfIndex = fileContent.indexOf(crlfSearch);
+  if (crlfIndex !== -1) {
+    return {
+      startIndex: crlfIndex,
+      endIndex: crlfIndex + crlfSearch.length,
+    };
+  }
+
+  // General path: handles mixed line endings (e.g. a file that already got
+  // mangled by an earlier edit). Build the normalized text plus a map from
+  // normalized index back to the original index.
+  const normalizedChars: string[] = [];
+  const indexMap: number[] = [];
+  for (let i = 0; i < fileContent.length; i++) {
+    const ch = fileContent[i];
+    if (ch === "\r") {
+      // Drop CR; a following \n already represents the line break.
+      continue;
+    }
+    normalizedChars.push(ch);
+    indexMap.push(i);
+  }
+
+  const normalizedIndex = normalizedChars.join("").indexOf(normalizedSearch);
+  if (normalizedIndex === -1) {
+    return null;
+  }
+
+  const startIndex = indexMap[normalizedIndex];
+  const endNormalized = normalizedIndex + normalizedSearch.length;
+  const endIndex =
+    endNormalized < indexMap.length
+      ? indexMap[endNormalized]
+      : fileContent.length;
+
+  return { startIndex, endIndex };
+}
+
+/**
  * Trimmed content matching strategy
  */
 function trimmedMatch(
@@ -302,6 +367,7 @@ function findFuzzyMatch(
  */
 const matchingStrategies: Array<{ strategy: MatchStrategy; name: string }> = [
   { strategy: exactMatch, name: "exactMatch" },
+  { strategy: lineEndingNormalizedMatch, name: "lineEndingNormalizedMatch" },
   { strategy: trimmedMatch, name: "trimmedMatch" },
   { strategy: caseInsensitiveMatch, name: "caseInsensitiveMatch" },
   { strategy: whitespaceIgnoredMatch, name: "whitespaceIgnoredMatch" },

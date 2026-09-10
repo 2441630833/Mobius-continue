@@ -46,10 +46,7 @@ function adjustReplacementIndentation(
   oldString: string,
   newString: string,
 ): string {
-  if (
-    match.strategyName === "exactMatch" ||
-    match.strategyName === "emptySearch"
-  ) {
+  if (PRECISE_STRATEGIES.has(match.strategyName)) {
     return newString;
   }
 
@@ -82,6 +79,31 @@ function adjustReplacementIndentation(
   return adjusted.join("\n");
 }
 
+/**
+ * Keep the file's line endings consistent when inserting new text.
+ *
+ * Without this, replacing a region of a CRLF file with an LLM-provided
+ * newString (which uses \n) leaves the file with mixed line endings. The next
+ * edit then has to match against a file whose endings no longer match what the
+ * model saw, which is a common cause of cascading "string not found" failures.
+ */
+function preserveLineEndings(matchedText: string, newString: string): string {
+  if (!/[\r\n]/.test(newString)) {
+    return newString;
+  }
+  const normalizedNew = newString.replace(/\r\n?/g, "\n");
+  return matchedText.includes("\r\n")
+    ? normalizedNew.replace(/\n/g, "\r\n")
+    : normalizedNew;
+}
+
+/** Strategies that reflect the literal file contents (not a fuzzy match). */
+const PRECISE_STRATEGIES = new Set([
+  "exactMatch",
+  "emptySearch",
+  "lineEndingNormalizedMatch",
+]);
+
 export function executeFindAndReplace(
   fileContent: string,
   oldString: string,
@@ -103,11 +125,9 @@ export function executeFindAndReplace(
     let result = fileContent;
     for (let i = matches.length - 1; i >= 0; i--) {
       const match = matches[i];
-      const adjustedNew = adjustReplacementIndentation(
-        result,
-        match,
-        oldString,
-        newString,
+      const adjustedNew = preserveLineEndings(
+        fileContent.substring(match.startIndex, match.endIndex),
+        adjustReplacementIndentation(result, match, oldString, newString),
       );
       result =
         result.substring(0, match.startIndex) +
@@ -116,21 +136,30 @@ export function executeFindAndReplace(
     }
     return result;
   } else {
+    let match = matches[0];
+
     // For single replacement, check for multiple matches first
     if (matches.length > 1) {
-      throw new ContinueError(
-        ContinueErrorReason.FindAndReplaceMultipleOccurrences,
-        `Edit at index ${editIndex}: String "${oldString}" appears ${matches.length} times in the file. Either provide a more specific string with surrounding context to make it unique, or use replace_all=true to replace all occurrences.`,
+      // Prefer a literal (non-fuzzy) match: if the string occurs exactly once
+      // verbatim, that is unambiguously the intended target even when a looser
+      // strategy also matched other places. Only fail when it is genuinely
+      // ambiguous.
+      const preciseMatches = matches.filter((m) =>
+        PRECISE_STRATEGIES.has(m.strategyName),
       );
+      if (preciseMatches.length !== 1) {
+        throw new ContinueError(
+          ContinueErrorReason.FindAndReplaceMultipleOccurrences,
+          `Edit at index ${editIndex}: String "${oldString}" appears ${matches.length} times in the file. Either provide a more specific string with surrounding context to make it unique, or use replace_all=true to replace all occurrences.`,
+        );
+      }
+      match = preciseMatches[0];
     }
 
     // Apply single replacement
-    const match = matches[0];
-    const adjustedNew = adjustReplacementIndentation(
-      fileContent,
-      match,
-      oldString,
-      newString,
+    const adjustedNew = preserveLineEndings(
+      fileContent.substring(match.startIndex, match.endIndex),
+      adjustReplacementIndentation(fileContent, match, oldString, newString),
     );
     return (
       fileContent.substring(0, match.startIndex) +
