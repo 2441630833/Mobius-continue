@@ -10,6 +10,7 @@ import { selectChatModelForActiveSession } from "../slices/configSlice";
 import {
   replaceSession,
   setChatModelTitle,
+  setNewChatDraftKey,
   type SessionState,
 } from "../slices/sessionSlice";
 import { addTab, setActiveTab } from "../slices/tabsSlice";
@@ -78,6 +79,9 @@ export const switchChatSession = createAsyncThunk<
     }
 
     if (!sessionId) {
+      // Key this New Chat's draft by tab id: its session id is regenerated on
+      // every visit, so an unsent prompt would otherwise be lost on return.
+      dispatch(setNewChatDraftKey(tabId));
       dispatch(replaceSession(undefined));
       // New empty tab starts with the previously visible chat's provider.
       if (currentModelTitle) {
@@ -128,6 +132,10 @@ export const openNewChatTab = createAsyncThunk<void, void, ThunkApiType>(
       );
     }
 
+    const newTabId = generateChatTabId();
+    // Key this New Chat's draft by tab id so an unsent prompt typed before the
+    // first message survives switching away and back.
+    dispatch(setNewChatDraftKey(newTabId));
     dispatch(replaceSession(undefined));
     // Seed the new chat with the current provider so the picker stays stable,
     // while still allowing this tab to diverge later.
@@ -136,7 +144,7 @@ export const openNewChatTab = createAsyncThunk<void, void, ThunkApiType>(
     }
     dispatch(
       addTab({
-        id: generateChatTabId(),
+        id: newTabId,
         title: NEW_AGENT_TAB_TITLE,
         isActive: true,
         sessionId: undefined,

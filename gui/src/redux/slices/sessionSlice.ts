@@ -272,6 +272,14 @@ export type SessionState = {
   mainEditorDraftContent?: JSONContent | undefined;
   /** Per-session main input drafts so unsent prompts survive navigating away and back. */
   chatDrafts: Record<string, JSONContent | undefined>;
+  /**
+   * Stable key for the active tab's draft. Equals the sessionId for a saved chat,
+   * or the tab id for an unsent New Chat -- a New Chat's session id is regenerated
+   * on every visit, so it cannot be used as a draft key.
+   */
+  draftKey?: string;
+  /** Tab id supplied by the caller on entering a New Chat; consumed by the reducer. */
+  pendingNewChatDraftKey?: string;
   symbols: FileSymbolMap;
   mode: MessageModes;
   isInEdit: boolean;
@@ -301,6 +309,8 @@ export const INITIAL_SESSION_STATE: SessionState = {
   mode: "agent",
   isInEdit: false,
   chatDrafts: {},
+  draftKey: undefined,
+  pendingNewChatDraftKey: undefined,
   chatModelTitle: null,
   codeBlockApplyStates: {
     states: [],
@@ -407,15 +417,27 @@ export const sessionSlice = createSlice({
     ) => {
       state.mainEditorDraftContent = action.payload;
       // Persist per-session so it survives switching away and back.
-      if (state.id) {
-        state.chatDrafts[state.id] = action.payload;
+      // A New Chat is keyed by its tab id, because its session id is regenerated
+      // on every visit and would never resolve back to this draft.
+      const key = state.draftKey ?? state.id;
+      if (key) {
+        state.chatDrafts[key] = action.payload;
       }
     },
     clearMainEditorDraftContent: (state) => {
       state.mainEditorDraftContent = undefined;
-      if (state.id) {
-        state.chatDrafts[state.id] = undefined;
+      const key = state.draftKey ?? state.id;
+      if (key) {
+        state.chatDrafts[key] = undefined;
       }
+    },
+    /**
+     * Announce the tab id of a New Chat that is about to be opened, so the
+     * reducer can key that tab's draft by tab id instead of by the throwaway
+     * session id that gets regenerated on every visit.
+     */
+    setNewChatDraftKey: (state, action: PayloadAction<string | undefined>) => {
+      state.pendingNewChatDraftKey = action.payload;
     },
     updateFileSymbols: (state, action: PayloadAction<FileSymbolMap>) => {
       state.symbols = {
@@ -783,6 +805,7 @@ export const sessionSlice = createSlice({
         state.history = payload.history as any;
         state.title = sanitizeSessionTitle(payload.title) || payload.title;
         state.id = payload.sessionId;
+        state.draftKey = payload.sessionId;
         state.chatModelTitle = payload.chatModelTitle ?? null;
         if (payload.mode) {
           state.mode = payload.mode;
@@ -792,9 +815,14 @@ export const sessionSlice = createSlice({
         state.title = NEW_SESSION_TITLE;
         state.id = uuidv4();
         state.chatModelTitle = null;
+        // New Chat: key the draft by tab id. The session id is regenerated on
+        // every visit, so it can never resolve back to this tab's draft.
+        state.draftKey = state.pendingNewChatDraftKey ?? state.id;
       }
+      state.pendingNewChatDraftKey = undefined;
       // Resolve the draft for the now-active session.
-      state.mainEditorDraftContent = state.chatDrafts[state.id];
+      state.mainEditorDraftContent =
+        state.chatDrafts[state.draftKey ?? state.id];
     },
     /**
      * Swap the visible session without aborting any in-flight stream.
@@ -818,8 +846,12 @@ export const sessionSlice = createSlice({
         state.isPruned = false;
         state.contextPercentage = undefined;
         state.chatModelTitle = null;
-        // Fresh blank tab starts with no draft.
-        state.mainEditorDraftContent = state.chatDrafts[state.id];
+        // New Chat: key the draft by tab id so an unsent prompt typed here
+        // survives navigating to another chat and back. The session id is
+        // regenerated on every visit, so it cannot be used as the draft key.
+        state.draftKey = state.pendingNewChatDraftKey ?? state.id;
+        state.pendingNewChatDraftKey = undefined;
+        state.mainEditorDraftContent = state.chatDrafts[state.draftKey];
         return;
       }
 
@@ -828,6 +860,8 @@ export const sessionSlice = createSlice({
         const parked = payload as SessionState;
         Object.assign(state, parked);
         state.lastSessionId = previousId;
+        // States parked before draftKey existed fall back to their session id.
+        state.draftKey = parked.draftKey ?? state.id;
         return;
       }
 
@@ -844,8 +878,10 @@ export const sessionSlice = createSlice({
       state.isPruned = false;
       state.contextPercentage = undefined;
       state.chatModelTitle = session.chatModelTitle ?? null;
+      state.draftKey = session.sessionId;
+      state.pendingNewChatDraftKey = undefined;
       // Resolve this session's unsent draft (persisted in-memory).
-      state.mainEditorDraftContent = state.chatDrafts[state.id];
+      state.mainEditorDraftContent = state.chatDrafts[state.draftKey];
       if (session.mode) {
         state.mode = session.mode;
       }
@@ -1221,6 +1257,7 @@ export const {
   setMainEditorContentTrigger,
   setMainEditorDraftContent,
   clearMainEditorDraftContent,
+  setNewChatDraftKey,
   deleteMessage,
   deleteCompaction,
   setIsGatheringContext,

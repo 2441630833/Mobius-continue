@@ -516,5 +516,82 @@ describe("sessionSlice streamUpdate", () => {
         content: [{ type: "text", text: "draft" }],
       });
     });
+
+    it("should keep a New Chat draft when navigating away and back", () => {
+      let state: SessionState = createInitialState() as SessionState;
+
+      // Enter a New Chat tab (no sessionId); the caller announces the tab id.
+      state = sessionSlice.reducer(state, {
+        type: "session/setNewChatDraftKey",
+        payload: "tab-1",
+      });
+      state = sessionSlice.reducer(state, {
+        type: "session/replaceSession",
+        payload: undefined,
+      });
+      expect(state.draftKey).toBe("tab-1");
+
+      // Type a prompt but do not send it.
+      state = sessionSlice.reducer(state, {
+        type: "session/setMainEditorDraftContent",
+        payload: { type: "doc", content: [{ type: "text", text: "unsent" }] },
+      });
+      expect(state.chatDrafts["tab-1"]).toBeDefined();
+
+      // Navigate away to a saved chat.
+      state = sessionSlice.reducer(state, {
+        type: "session/replaceSession",
+        payload: { sessionId: "session-B", title: "B", history: [] },
+      });
+      expect(state.mainEditorDraftContent).toBeUndefined();
+
+      // Come back to the New Chat tab -- the draft must survive.
+      state = sessionSlice.reducer(state, {
+        type: "session/setNewChatDraftKey",
+        payload: "tab-1",
+      });
+      state = sessionSlice.reducer(state, {
+        type: "session/replaceSession",
+        payload: undefined,
+      });
+      expect(state.mainEditorDraftContent).toEqual({
+        type: "doc",
+        content: [{ type: "text", text: "unsent" }],
+      });
+    });
+
+    it("should keep separate drafts for two New Chat tabs", () => {
+      let state: SessionState = createInitialState() as SessionState;
+
+      const enterNewChat = (tabId: string) => {
+        state = sessionSlice.reducer(state, {
+          type: "session/setNewChatDraftKey",
+          payload: tabId,
+        });
+        state = sessionSlice.reducer(state, {
+          type: "session/replaceSession",
+          payload: undefined,
+        });
+      };
+
+      enterNewChat("tab-1");
+      state = sessionSlice.reducer(state, {
+        type: "session/setMainEditorDraftContent",
+        payload: { type: "doc", content: [{ type: "text", text: "one" }] },
+      });
+
+      enterNewChat("tab-2");
+      expect(state.mainEditorDraftContent).toBeUndefined();
+      state = sessionSlice.reducer(state, {
+        type: "session/setMainEditorDraftContent",
+        payload: { type: "doc", content: [{ type: "text", text: "two" }] },
+      });
+
+      enterNewChat("tab-1");
+      expect(state.mainEditorDraftContent).toEqual({
+        type: "doc",
+        content: [{ type: "text", text: "one" }],
+      });
+    });
   });
 });
