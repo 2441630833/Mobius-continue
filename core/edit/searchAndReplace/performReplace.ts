@@ -169,23 +169,83 @@ export function executeFindAndReplace(
   }
 }
 
-export function executeMultiFindAndReplace(
+export type MultiEditFailure = {
+  index: number;
+  reason: ContinueErrorReason;
+  message: string;
+};
+
+/**
+ * Dry-run the whole edit batch against the file content.
+ *
+ * The executor is all-or-nothing: the edited text is only written once every edit
+ * succeeded. It used to abort on the *first* bad row though, and the error never
+ * said that nothing had been written — models routinely answered themselves with
+ * "were edits 0 and 1 applied or not?" and burned turns re-reading the file.
+ *
+ * Simulating first lets every failing index be reported in a single message, so
+ * the model can fix them all in one retry, and lets the caller state
+ * unambiguously that the file is unchanged.
+ */
+export function simulateMultiFindAndReplace(
   fileContent: string,
   edits: EditOperation[],
-): string {
-  let result = fileContent;
+): { content: string; failures: MultiEditFailure[] } {
+  let content = fileContent;
+  const failures: MultiEditFailure[] = [];
 
   // Apply edits in sequence
   for (let editIndex = 0; editIndex < edits.length; editIndex++) {
     const edit = edits[editIndex];
-    result = executeFindAndReplace(
-      result,
-      edit.old_string,
-      edit.new_string,
-      edit.replace_all ?? false,
-      editIndex,
+    try {
+      content = executeFindAndReplace(
+        content,
+        edit.old_string,
+        edit.new_string,
+        edit.replace_all ?? false,
+        editIndex,
+      );
+    } catch (error) {
+      failures.push({
+        index: editIndex,
+        reason:
+          error instanceof ContinueError
+            ? error.reason
+            : ContinueErrorReason.FindAndReplaceOldStringNotFound,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      // Keep simulating against the current content so later indices are still
+      // diagnosed — one bad row should not hide the state of the others.
+    }
+  }
+
+  return { content, failures };
+}
+
+function formatMultiEditFailures(
+  failures: MultiEditFailure[],
+  total: number,
+): string {
+  const listing = failures
+    .map((failure) => `  - ${failure.message}`)
+    .join("\n");
+  return `${failures.length} of ${total} edit(s) could not be applied, so NO edits were written and the file is unchanged:
+${listing}
+Re-read the file, then retry the whole edit list with the listed index/indices fixed.`;
+}
+
+export function executeMultiFindAndReplace(
+  fileContent: string,
+  edits: EditOperation[],
+): string {
+  const { content, failures } = simulateMultiFindAndReplace(fileContent, edits);
+
+  if (failures.length > 0) {
+    throw new ContinueError(
+      failures[0].reason,
+      formatMultiEditFailures(failures, edits.length),
     );
   }
 
-  return result;
+  return content;
 }
