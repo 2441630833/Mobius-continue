@@ -200,6 +200,15 @@ export function toChatMessage(
                   detail: "auto" as const,
                 },
               };
+            } else if (part.type === "audioUrl") {
+              const base64Data = part.audioUrl.url.split("base64,")[1] || "";
+              return {
+                type: "input_audio",
+                input_audio: {
+                  data: base64Data,
+                  format: "wav",
+                },
+              } as any;
             }
             return part;
           })

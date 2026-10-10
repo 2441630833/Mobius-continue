@@ -879,7 +879,7 @@ describe("openaiTypeConverters", () => {
         { model: "demx_llm" },
       );
 
-      const toolCall = body.messages[1].tool_calls?.[0];
+      const toolCall = (body.messages[1] as any).tool_calls?.[0];
       expect(toolCall?.function.arguments).toBeDefined();
       expect(() => JSON.parse(toolCall!.function.arguments!)).not.toThrow();
     });

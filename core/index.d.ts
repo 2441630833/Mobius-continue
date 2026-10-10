@@ -349,7 +349,12 @@ export type ImageMessagePart = {
   imageUrl: { url: string };
 };
 
-export type MessagePart = TextMessagePart | ImageMessagePart;
+export type AudioMessagePart = {
+  type: "audioUrl";
+  audioUrl: { url: string };
+};
+
+export type MessagePart = TextMessagePart | ImageMessagePart | AudioMessagePart;
 
 export type MessageContent = string | MessagePart[];
 

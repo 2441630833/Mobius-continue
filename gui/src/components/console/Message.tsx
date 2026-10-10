@@ -33,8 +33,10 @@ function renderMessageContent(
     return message.content.map((part) => {
       if (part.type == "text") {
         return renderMessageText(part.text);
-      } else {
+      } else if (part.type == "imageUrl") {
         return <div>Image: {part.imageUrl.url}</div>;
+      } else if (part.type == "audioUrl") {
+        return <div>Audio: {part.audioUrl.url.substring(0, 50)}...</div>;
       }
     });
   }

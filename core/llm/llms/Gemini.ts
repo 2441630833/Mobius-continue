@@ -210,25 +210,43 @@ class Gemini extends BaseLLM {
       };
     }
 
-    let data = "";
-    if (part.imageUrl?.url) {
-      const extracted = extractBase64FromDataUrl(part.imageUrl.url);
-      if (extracted) {
-        data = extracted;
-      } else {
-        console.warn(
-          "Gemini: skipping image with invalid data URL format",
-          part.imageUrl.url,
-        );
+    if (part.type === "imageUrl") {
+      let data = "";
+      if (part.imageUrl?.url) {
+        const extracted = extractBase64FromDataUrl(part.imageUrl.url);
+        if (extracted) {
+          data = extracted;
+        } else {
+          console.warn(
+            "Gemini: skipping image with invalid data URL format",
+            part.imageUrl.url,
+          );
+        }
       }
-    }
 
-    return {
-      inlineData: {
-        mimeType: "image/jpeg",
-        data,
-      },
-    };
+      return {
+        inlineData: {
+          mimeType: "image/jpeg",
+          data,
+        },
+      };
+    } else if (part.type === "audioUrl") {
+      let data = "";
+      if (part.audioUrl?.url) {
+        const extracted = extractBase64FromDataUrl(part.audioUrl.url);
+        if (extracted) {
+          data = extracted;
+        }
+      }
+      return {
+        inlineData: {
+          mimeType: "audio/wav",
+          data,
+        },
+      };
+    }
+    
+    return { text: "" };
   }
 
   public prepareBody(

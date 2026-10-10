@@ -104,12 +104,21 @@ export function processEditorContent(editorState: JSONContent) {
           parts.push({ type: "text", text: codeText });
         }
         break;
-      case Image.name:
-        parts.push({
-          type: "imageUrl",
-          imageUrl: { url: p.attrs?.src },
-        });
+      case Image.name: {
+        const src = p.attrs?.src;
+        if (src && src.startsWith("data:audio/")) {
+          parts.push({
+            type: "audioUrl",
+            audioUrl: { url: src },
+          });
+        } else {
+          parts.push({
+            type: "imageUrl",
+            imageUrl: { url: src },
+          });
+        }
         break;
+      }
       default: {
         console.warn("Unexpected content type", p.type);
       }

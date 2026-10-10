@@ -101,6 +101,8 @@ async function countTokensAsync(
     const promises = content.map(async (part) => {
       if (part.type === "imageUrl") {
         return countImageTokens(part);
+      } else if (part.type === "audioUrl") {
+        return 0; // audio token counting not yet implemented
       }
       return (await encoding.encode(part.text ?? "")).length;
     });
@@ -122,7 +124,7 @@ function countTokens(
         acc +
         (part.type === "text"
           ? encoding.encode(part.text ?? "", "all", []).length
-          : countImageTokens(part))
+          : part.type === "imageUrl" ? countImageTokens(part) : 0)
       );
     }, 0);
   } else {

@@ -104,6 +104,9 @@ export function useVoiceInput({
 
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const restartTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const currentUtteranceRef = useRef<string>("");
   const hasSpokenContentRef = useRef<boolean>(false);
 
@@ -123,6 +126,29 @@ export function useVoiceInput({
     }
   }, []);
 
+  const startMediaRecorder = useCallback(async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return;
+    }
+    try {
+      if (!mediaStreamRef.current) {
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      const stream = mediaStreamRef.current;
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+    } catch (e) {
+      console.warn("Failed to start MediaRecorder", e);
+    }
+  }, []);
+
   // Trigger send of recognized text
   const submitSpokenText = useCallback(() => {
     clearSilenceTimer();
@@ -139,20 +165,53 @@ export function useVoiceInput({
       return;
     }
 
-    // Submit text to chat
-    if (onEnterRef.current) {
-      onEnterRef.current({
-        useCodebase: false,
-        noContext: false,
-      });
-    }
+    const finalizeAndSend = (audioBase64?: string) => {
+      if (audioBase64 && editorRef.current) {
+        const { schema } = editorRef.current.state;
+        const node = schema.nodes.image.create({ src: audioBase64 });
+        editorRef.current.commands.command(({ tr }) => {
+          tr.insert(0, node);
+          return true;
+        });
+      }
 
-    // Reset current utterance buffer for next continuous speech turn
-    currentUtteranceRef.current = "";
-    hasSpokenContentRef.current = false;
-    setTranscriptPreview("");
-    setIsWaitingForStream(false);
-  }, [clearSilenceTimer]);
+      if (onEnterRef.current) {
+        onEnterRef.current({
+          useCodebase: false,
+          noContext: false,
+        });
+      }
+
+      currentUtteranceRef.current = "";
+      hasSpokenContentRef.current = false;
+      setTranscriptPreview("");
+      setIsWaitingForStream(false);
+      
+      if (isActiveRef.current && startMediaRecorder) {
+        startMediaRecorder();
+      }
+    };
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      const currentRecorder = mediaRecorderRef.current;
+      currentRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          finalizeAndSend(reader.result as string);
+        };
+      };
+      try {
+        currentRecorder.stop();
+      } catch (e) {
+        finalizeAndSend();
+      }
+      mediaRecorderRef.current = null;
+    } else {
+      finalizeAndSend();
+    }
+  }, [clearSilenceTimer, startMediaRecorder]);
 
   // When streaming finishes, if we were waiting to submit, submit immediately
   useEffect(() => {
@@ -163,10 +222,25 @@ export function useVoiceInput({
   }, [isStreaming, isWaitingForStream, submitSpokenText]);
 
   // Stop listening explicitly
+  const cleanupMedia = useCallback(() => {
+    if (mediaRecorderRef.current) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
+      mediaRecorderRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    audioChunksRef.current = [];
+  }, []);
+
   const stopListening = useCallback(() => {
     isActiveRef.current = false;
     clearSilenceTimer();
     clearRestartTimer();
+    cleanupMedia();
 
     if (recognitionRef.current) {
       try {
@@ -186,6 +260,7 @@ export function useVoiceInput({
   }, [clearSilenceTimer, clearRestartTimer]);
 
   // Start speech recognition instance
+
   const startRecognitionInstance = useCallback(() => {
     if (!SpeechRecognitionClass || !isActiveRef.current) {
       return;
@@ -304,7 +379,8 @@ export function useVoiceInput({
           clearRestartTimer();
           restartTimerRef.current = setTimeout(() => {
             if (isActiveRef.current) {
-              startRecognitionInstance();
+              startMediaRecorder();
+    startRecognitionInstance();
             }
           }, 200);
         } else {
