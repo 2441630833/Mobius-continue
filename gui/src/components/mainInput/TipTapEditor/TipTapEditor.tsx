@@ -20,6 +20,7 @@ import { ComboBoxItem } from "../types";
 import { DragOverlay } from "./components/DragOverlay";
 import { InputBoxDiv } from "./components/StyledComponents";
 import { useMainEditor } from "./MainEditorProvider";
+import { useVoiceInput } from "../../../hooks/useVoiceInput";
 import "./TipTapEditor.css";
 import { createEditorConfig, getPlaceholderText } from "./utils/editorConfig";
 import { handleImageFile } from "./utils/imageUtils";
@@ -63,6 +64,12 @@ function TipTapEditorInner(props: TipTapEditorProps) {
     props,
     ideMessenger,
     dispatch,
+  });
+
+  const voiceInput = useVoiceInput({
+    editor,
+    onEnter,
+    isStreaming,
   });
 
   // Register the main editor with the provider
@@ -314,9 +321,10 @@ function TipTapEditorInner(props: TipTapEditorProps) {
           isMainInput={props.isMainInput}
           toolbarOptions={props.toolbarOptions}
           activeKey={activeKey}
-          hidden={shouldHideToolbar && !props.isMainInput}
+          hidden={shouldHideToolbar && !props.isMainInput && !voiceInput.isListening}
           onAddContextItem={() => insertCharacterWithWhitespace("@")}
           onEnter={onEnter}
+          voiceInputProps={voiceInput}
           onImageFileSelected={(file) => {
             void handleImageFile(ideMessenger, file).then((result) => {
               if (!editor) {

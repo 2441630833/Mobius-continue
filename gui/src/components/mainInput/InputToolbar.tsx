@@ -1,9 +1,13 @@
 import {
   AtSymbolIcon,
   LightBulbIcon as LightBulbIconOutline,
+  MicrophoneIcon as MicrophoneIconOutline,
   PhotoIcon,
 } from "@heroicons/react/24/outline";
-import { LightBulbIcon as LightBulbIconSolid } from "@heroicons/react/24/solid";
+import {
+  LightBulbIcon as LightBulbIconSolid,
+  MicrophoneIcon as MicrophoneIconSolid,
+} from "@heroicons/react/24/solid";
 import { InputModifiers } from "core";
 import {
   modelSupportsImages,
@@ -34,6 +38,15 @@ export interface ToolbarOptions {
   hideSelectModel?: boolean;
 }
 
+export interface VoiceInputToolbarProps {
+  isListening: boolean;
+  isSpeaking: boolean;
+  isSupported: boolean;
+  isWaitingForStream: boolean;
+  error: string | null;
+  toggleVoiceInput: () => void;
+}
+
 interface InputToolbarProps {
   onEnter?: (modifiers: InputModifiers) => void;
   onAddContextItem?: () => void;
@@ -44,6 +57,7 @@ interface InputToolbarProps {
   toolbarOptions?: ToolbarOptions;
   disabled?: boolean;
   isMainInput?: boolean;
+  voiceInputProps?: VoiceInputToolbarProps;
 }
 
 function InputToolbar(props: InputToolbarProps) {
@@ -165,6 +179,75 @@ function InputToolbar(props: InputToolbarProps) {
                 </ToolTip>
               </HoverItem>
             )}
+            {props.voiceInputProps?.isSupported && (
+              <HoverItem
+                onClick={props.voiceInputProps.toggleVoiceInput}
+                className={`transition-colors duration-200 cursor-pointer ${
+                  props.voiceInputProps.isListening
+                    ? "text-red-500 font-medium"
+                    : ""
+                }`}
+              >
+                <ToolTip
+                  place="top"
+                  content={
+                    props.voiceInputProps.isListening
+                      ? props.voiceInputProps.isWaitingForStream
+                        ? "语音模式：等待回复完成后自动发送 (点击关闭)"
+                        : "语音输入中 (连续交互模式)：说完自动发送 (点击关闭)"
+                      : "开启语音输入 (说完自动转文本发送，连续交互)"
+                  }
+                >
+                  <div className="flex items-center gap-1">
+                    {props.voiceInputProps.isListening ? (
+                      <MicrophoneIconSolid
+                        className={`h-3.5 w-3.5 text-red-500 hover:brightness-125 ${
+                          props.voiceInputProps.isSpeaking
+                            ? "animate-bounce"
+                            : "animate-pulse"
+                        }`}
+                      />
+                    ) : (
+                      <MicrophoneIconOutline className="h-3 w-3 hover:brightness-125" />
+                    )}
+                    {props.voiceInputProps.isListening && (
+                      <span className="flex items-center gap-1 text-[11px] text-red-500 font-medium tracking-tight">
+                        <span>
+                          {props.voiceInputProps.isSpeaking
+                            ? "正在说话..."
+                            : props.voiceInputProps.isWaitingForStream
+                            ? "等候发送..."
+                            : "聆听中"}
+                        </span>
+                        <span className="inline-flex items-center gap-0.5 ml-0.5">
+                          <span
+                            className={`w-0.5 h-2 bg-red-500 rounded-full ${
+                              props.voiceInputProps.isSpeaking
+                                ? "animate-pulse"
+                                : "opacity-40"
+                            }`}
+                          />
+                          <span
+                            className={`w-0.5 h-3 bg-red-500 rounded-full ${
+                              props.voiceInputProps.isSpeaking
+                                ? "animate-bounce"
+                                : "opacity-60"
+                            }`}
+                          />
+                          <span
+                            className={`w-0.5 h-2 bg-red-500 rounded-full ${
+                              props.voiceInputProps.isSpeaking
+                                ? "animate-pulse"
+                                : "opacity-40"
+                            }`}
+                          />
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </ToolTip>
+              </HoverItem>
+            )}
           </div>
         </div>
 
@@ -246,6 +329,11 @@ function InputToolbar(props: InputToolbarProps) {
           </ToolTip>
         </div>
       </div>
+      {props.voiceInputProps?.error && (
+        <div className="text-[11px] text-red-400 px-2 py-0.5 rounded bg-red-950/30 border border-red-800/40 mt-1">
+          {props.voiceInputProps.error}
+        </div>
+      )}
     </>
   );
 }
@@ -262,6 +350,21 @@ function shallowToolbarOptionsEqual(a?: ToolbarOptions, b?: ToolbarOptions) {
   );
 }
 
+function shallowVoiceInputEqual(
+  a?: VoiceInputToolbarProps,
+  b?: VoiceInputToolbarProps,
+) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.isListening === b.isListening &&
+    a.isSpeaking === b.isSpeaking &&
+    a.isSupported === b.isSupported &&
+    a.isWaitingForStream === b.isWaitingForStream &&
+    a.error === b.error
+  );
+}
+
 export default memo(
   InputToolbar,
   (prev, next) =>
@@ -269,5 +372,6 @@ export default memo(
     prev.disabled === next.disabled &&
     prev.isMainInput === next.isMainInput &&
     prev.activeKey === next.activeKey &&
-    shallowToolbarOptionsEqual(prev.toolbarOptions, next.toolbarOptions),
+    shallowToolbarOptionsEqual(prev.toolbarOptions, next.toolbarOptions) &&
+    shallowVoiceInputEqual(prev.voiceInputProps, next.voiceInputProps),
 );
