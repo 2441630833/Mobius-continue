@@ -27,6 +27,7 @@ import { codebaseTool } from "./tools/definitions/codebaseTool";
 import { fetchUrlContentTool } from "./tools/definitions/fetchUrlContent";
 import { grepSearchTool } from "./tools/definitions/grepSearch";
 import { readFileRangeTool } from "./tools/definitions/readFileRange";
+import { runTerminalCommandTool } from "./tools/definitions/runTerminalCommand";
 import { searchWebTool } from "./tools/definitions/searchWeb";
 import { resolveContinueToolName } from "./tools/toolNameAliases";
 import { ChatDescriber } from "./util/chatDescriber";
@@ -1202,6 +1203,7 @@ export class Core {
         grepSearchTool,
         searchWebTool,
         fetchUrlContentTool,
+        runTerminalCommandTool,
       ];
       tool = fallbacks.find((t) => t.function.name === resolvedName);
     }

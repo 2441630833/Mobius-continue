@@ -13,6 +13,15 @@ const COPILOT_TO_CONTINUE_TOOL_NAMES: Record<string, string> = {
   insert_edit_into_file: "edit_existing_file",
   fetch_webpage: "fetch_url_content",
   run_in_terminal: "run_terminal_command",
+  terminal: "run_terminal_command",
+  terminal_command: "run_terminal_command",
+  bash: "run_terminal_command",
+  sh: "run_terminal_command",
+  cmd: "run_terminal_command",
+  execute_command: "run_terminal_command",
+  run_command: "run_terminal_command",
+  runCommand: "run_terminal_command",
+  runInTerminal: "run_terminal_command",
   // get_errors / get_problems are workbench-local — no Continue core tool
 };
 
