@@ -64,8 +64,8 @@ function ConfigPage() {
 
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Alert for small screens (sm and below) */}
-        <div className="block px-4 py-4 sm:hidden">
+        {/* Alert for extremely narrow widths (xs and below) */}
+        <div className="block px-4 py-4 xs:hidden">
           <Alert type="warning" className="max-w-md">
             <div className="flex flex-col">
               <div className="font-medium">Screen width too small</div>
@@ -77,8 +77,8 @@ function ConfigPage() {
           </Alert>
         </div>
 
-        {/* Tab Content for larger screens (md and above) */}
-        <div className="thin-scrollbar relative hidden flex-1 overflow-y-auto sm:block">
+        {/* Tab Content for usable widths (xs and above) */}
+        <div className="thin-scrollbar relative hidden flex-1 overflow-y-auto xs:block">
           <DeprecationBanner dismissable={true} />
           <div className="space-y-6 px-4 pb-4 pt-8">
             {allTabs.find((tab) => tab.id === activeTab)?.component}
