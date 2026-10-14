@@ -20,9 +20,34 @@ function resolveSearchQuery(args: Record<string, unknown>): string {
 }
 
 export const searchWebImpl: ToolImpl = async (args, extras) => {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return [
+      {
+        name: "Network offline",
+        description: "Web search disabled",
+        content: "Search web is disabled because the network is offline. Please answer using existing knowledge or local workspace context.",
+      },
+    ];
+  }
+
   const query = resolveSearchQuery(args as Record<string, unknown>);
 
-  const webResults = await fetchSearchResults(query, 8, extras.fetch);
+  let webResults;
+  try {
+    webResults = await fetchSearchResults(query, 8, extras.fetch);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/ENOTFOUND|ECONNREFUSED|network|offline|Failed to fetch/i.test(msg)) {
+      return [
+        {
+          name: "Network offline",
+          description: "Web search unavailable",
+          content: `Search web is unavailable (network connection offline). Please answer using existing knowledge or local workspace context. (Detail: ${msg})`,
+        },
+      ];
+    }
+    throw err;
+  }
 
   // Track truncated results
   const truncatedResults: string[] = [];

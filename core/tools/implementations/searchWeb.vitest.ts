@@ -119,3 +119,32 @@ test("searchWeb accepts q alias for query", async () => {
     mockExtras.fetch,
   );
 });
+
+test("searchWeb returns offline disabled response when navigator.onLine is false", async () => {
+  const originalOnLine = Object.getOwnPropertyDescriptor(globalThis.navigator, "onLine");
+  try {
+    Object.defineProperty(globalThis.navigator, "onLine", { value: false, configurable: true });
+    (fetchSearchResults as any).mockClear();
+
+    const result = await searchWebImpl({ query: "test query" }, mockExtras);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("Network offline");
+    expect(result[0].content).toContain("Search web is disabled because the network is offline");
+    expect(fetchSearchResults).not.toHaveBeenCalled();
+  } finally {
+    if (originalOnLine) {
+      Object.defineProperty(globalThis.navigator, "onLine", originalOnLine);
+    } else {
+      delete (globalThis.navigator as any).onLine;
+    }
+  }
+});
+
+test("searchWeb handles network connection error gracefully", async () => {
+  (fetchSearchResults as any).mockRejectedValue(new Error("getaddrinfo ENOTFOUND cn.bing.com"));
+
+  const result = await searchWebImpl({ query: "test query" }, mockExtras);
+  expect(result).toHaveLength(1);
+  expect(result[0].name).toBe("Network offline");
+  expect(result[0].content).toContain("Search web is unavailable");
+});
