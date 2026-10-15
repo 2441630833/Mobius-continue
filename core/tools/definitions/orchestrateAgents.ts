@@ -10,12 +10,20 @@ export const orchestrateAgentsTool: Tool = {
   function: {
     name: "orchestrate_agents",
     description:
-      "Ask a supervisor to split a complex request into up to 4 independent research tasks and run read-only subagents in parallel. Returns attributed findings and failures; you must synthesize, implement and verify the result. Use once before complex research/implementation, not for greetings or simple edits. Pass only relevant, non-secret context.",
+      "Run a difficulty assessor, task orchestrator, up to 10 professional read-only specialists, a separate summarizer for each task and a final summarizer. Actual team size follows difficulty and useful independent work. Returns per-agent roles, contributions, summaries and truthful failure statuses. Explain each agent's work in your final answer after actual implementation and verification. Use once for complex tasks; pass only relevant non-secret context.",
     parameters: {
       type: "object",
       required: ["request"],
       properties: {
         request: { type: "string", maxLength: 8000 },
+        max_agents: {
+          type: "integer",
+          minimum: 5,
+          maximum: 10,
+          default: 10,
+          description:
+            "Maximum simultaneous specialists, from 5 to 10. The assessor may choose a smaller team for simpler tasks.",
+        },
         shared_context: {
           type: "string",
           maxLength: 8000,
