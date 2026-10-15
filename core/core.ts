@@ -1055,9 +1055,11 @@ export class Core {
       return { url: "" };
     });
 
-    on("tools/call", async ({ data: { toolCall } }) =>
-      this.handleToolCall(toolCall),
-    );
+    on("tools/call", async ({ data: { toolCall }, messageId }) => {
+      const controller = this.addMessageAbortController(messageId);
+      try { return await this.handleToolCall(toolCall, controller.signal); }
+      finally { this.messageAbortControllers.delete(messageId); }
+    });
 
     on(
       "tools/evaluatePolicy",
@@ -1177,7 +1179,7 @@ export class Core {
     });
   }
 
-  private async handleToolCall(toolCall: ToolCall) {
+  private async handleToolCall(toolCall: ToolCall, abortSignal?: AbortSignal) {
     const { config } = await this.configHandler.loadConfig();
     if (!config) {
       throw new Error("Config not loaded");
@@ -1240,6 +1242,8 @@ export class Core {
     // Bing / webpage GETs must not inherit LLM proxy or Authorization headers
     // from config.requestOptions — those break Search Web / Fetch Webpage.
     const isOutboundWebTool =
+      resolvedName === "orchestrate_agents" ||
+      resolvedName === "call_a2a_agent" ||
       resolvedName === BuiltInToolNames.SearchWeb ||
       resolvedName === BuiltInToolNames.FetchUrlContent;
     // Do not annotate init as DOM RequestInit — @continuedev/fetch uses node-fetch's RequestInit.
@@ -1254,6 +1258,7 @@ export class Core {
         ) => fetchwithRequestOptions(url, init, config.requestOptions);
 
     const result = await callTool(tool, toolCall, {
+      abortSignal,
       config,
       ide: this.ide,
       llm: config.selectedModelByRole.chat,

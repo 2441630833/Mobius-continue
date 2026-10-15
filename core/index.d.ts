@@ -368,6 +368,7 @@ export interface ToolCall {
 }
 
 export interface ToolCallDelta {
+  index?: number;
   id?: string;
   type?: "function";
   function?: {
@@ -1120,6 +1121,7 @@ export interface Prediction {
 }
 
 export interface ToolExtras {
+  abortSignal?: AbortSignal;
   ide: IDE;
   llm: ILLM;
   fetch: FetchFunction;

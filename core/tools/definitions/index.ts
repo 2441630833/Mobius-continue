@@ -1,4 +1,5 @@
 export { codebaseTool } from "./codebaseTool";
+export { orchestrateAgentsTool, listA2aAgentsTool, callA2aAgentTool } from "./orchestrateAgents";
 export { createNewFileTool } from "./createNewFile";
 export { createRuleBlock } from "./createRuleBlock";
 export { editFileTool } from "./editFile";

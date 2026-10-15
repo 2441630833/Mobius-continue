@@ -378,6 +378,7 @@ export function fromChatCompletionChunk(
     const toolCalls = delta?.tool_calls
       .filter((tool_call) => !tool_call.type || tool_call.type === "function")
       .map((tool_call) => ({
+        ...(tool_call.index !== undefined ? { index: tool_call.index } : {}),
         id: tool_call.id,
         type: "function" as const,
         function: {
