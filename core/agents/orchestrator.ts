@@ -92,26 +92,52 @@ export interface OrchestratorHost {
 }
 
 function parseJson(text: string): unknown {
-  return JSON.parse(
-    text
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/, ""),
-  );
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  try {
+    return JSON.parse(cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+  } catch {
+    // Some chat providers surround structured responses with prose. Extract a
+    // balanced object without changing strings or accepting an incomplete plan.
+    let start = -1;
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (start < 0) {
+        if (ch === "{") { start = i; depth = 1; }
+        continue;
+      }
+      if (quoted) {
+        if (escaped) { escaped = false; }
+        else if (ch === "\\") { escaped = true; }
+        else if (ch === '"') { quoted = false; }
+        continue;
+      }
+      if (ch === '"') { quoted = true; }
+      else if (ch === "{") { depth++; }
+      else if (ch === "}" && --depth === 0) {
+        return JSON.parse(cleaned.slice(start, i + 1));
+      }
+    }
+    throw new Error("Research model did not return a complete JSON object");
+  }
 }
 
 export function resolveMaxAgents(
   value: unknown = AGENT_LIMITS.workers,
 ): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 5 ||
-    value > AGENT_LIMITS.workers
-  ) {
-    throw new Error("max_agents must be an integer between 5 and 10");
+  // Treat missing/non-integer gracefully: use the default workers limit.
+  if (value === undefined || value === null) {
+    return AGENT_LIMITS.workers;
   }
-  return value;
+  const n =
+    typeof value === "string" ? parseInt(value as string, 10) : (value as number);
+  if (!Number.isInteger(n) || n < 1 || n > AGENT_LIMITS.workers) {
+    // Invalid value: fall back to default rather than aborting the whole run.
+    return AGENT_LIMITS.workers;
+  }
+  return n;
 }
 
 export function parseAgentAssessment(
@@ -119,25 +145,39 @@ export function parseAgentAssessment(
   maximum: number,
 ): AgentAssessment {
   const parsed = parseJson(text) as Partial<AgentAssessment> | null;
-  const budgets = { simple: 2, moderate: 4, complex: 7, very_complex: 10 };
-  if (
-    !parsed ||
-    !Object.prototype.hasOwnProperty.call(budgets, parsed.difficulty ?? "") ||
-    !Number.isInteger(parsed.workerCount) ||
-    parsed.workerCount! < 1 ||
-    parsed.workerCount! > budgets[parsed.difficulty!] ||
-    typeof parsed.reason !== "string" ||
-    !parsed.reason.trim() ||
-    parsed.reason.length > 1000
-  ) {
-    throw new Error(
-      "Assessor must return difficulty, a valid workerCount budget and reason",
-    );
+  const budgets: Record<string, number> = {
+    simple: 2,
+    moderate: 4,
+    complex: 7,
+    very_complex: 10,
+  };
+  // Clamp workerCount to its difficulty budget and the run maximum instead
+  // of throwing when the model returns a slightly out-of-range value.
+  const difficulty = parsed?.difficulty;
+  const hasDifficulty =
+    typeof difficulty === "string" &&
+    Object.prototype.hasOwnProperty.call(budgets, difficulty);
+  const rawCount =
+    typeof parsed?.workerCount === "number" ? parsed.workerCount : 1;
+  const budget = hasDifficulty ? budgets[difficulty!] : 1;
+  const workerCount = Math.min(
+    Math.max(1, Math.floor(rawCount)),
+    budget,
+    maximum,
+  );
+  // If the assessor returned something completely unparseable, degrade to
+  // a single-worker simple run rather than aborting the whole operation.
+  if (!hasDifficulty || typeof parsed?.reason !== "string" || !parsed.reason.trim()) {
+    return {
+      difficulty: "simple",
+      workerCount: 1,
+      reason: `Assessor returned invalid or unparseable response; defaulted to single-worker simple run. Raw: ${text.slice(0, 200)}`,
+    };
   }
   return {
-    difficulty: parsed.difficulty!,
-    workerCount: Math.min(parsed.workerCount!, maximum),
-    reason: parsed.reason,
+    difficulty: difficulty as AgentAssessment["difficulty"],
+    workerCount,
+    reason: parsed!.reason,
   };
 }
 
@@ -145,37 +185,71 @@ export function parseAgentPlan(
   text: string,
   maximum: number = AGENT_LIMITS.workers,
 ): AgentTask[] {
-  const parsed = parseJson(text);
-  const tasks = (parsed as { tasks?: unknown })?.tasks;
-  if (!Array.isArray(tasks) || tasks.length < 1 || tasks.length > maximum) {
-    throw new Error(`Orchestrator must return 1-${maximum} tasks`);
+  let parsed: unknown;
+  try {
+    parsed = parseJson(text);
+  } catch {
+    // If the orchestrator returned something completely unparseable, fall
+    // back to a single generic research task so the run can continue.
+    return [
+      {
+        id: "task-1",
+        prompt: "Perform a general analysis of the request using available tools.",
+        role: "General Researcher",
+        title: "General research",
+      },
+    ];
   }
-  return tasks.map((task, i) => {
-    if (
-      !task ||
-      typeof task.prompt !== "string" ||
-      !task.prompt.trim() ||
-      task.prompt.length > AGENT_LIMITS.taskChars ||
-      typeof task.role !== "string" ||
-      !task.role.trim() ||
-      task.role.length > 80 ||
-      typeof task.title !== "string" ||
-      !task.title.trim() ||
-      task.title.length > 120
-    ) {
-      throw new Error(`Invalid supervisor task ${i + 1}`);
-    }
-    if (task.agentId !== undefined && typeof task.agentId !== "string") {
-      throw new Error(`Invalid agentId for task ${i + 1}`);
-    }
-    return {
+  const rawTasks = (parsed as { tasks?: unknown })?.tasks;
+  const taskArray = Array.isArray(rawTasks) ? rawTasks : [];
+  // Clamp to maximum instead of throwing
+  const tasks = taskArray.slice(0, maximum);
+  if (tasks.length === 0) {
+    return [
+      {
+        id: "task-1",
+        prompt: "Perform a general analysis of the request using available tools.",
+        role: "General Researcher",
+        title: "General research",
+      },
+    ];
+  }
+  const result: AgentTask[] = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const task: any = tasks[i];
+    if (!task || typeof task !== "object") continue;
+    const prompt =
+      typeof task.prompt === "string" && task.prompt.trim()
+        ? task.prompt.slice(0, AGENT_LIMITS.taskChars)
+        : "Perform a general analysis of the request using available tools.";
+    const role =
+      typeof task.role === "string" && task.role.trim()
+        ? task.role.slice(0, 80)
+        : "General Researcher";
+    const title =
+      typeof task.title === "string" && task.title.trim()
+        ? task.title.slice(0, 120)
+        : "Research task";
+    const agentId =
+      typeof task.agentId === "string" ? task.agentId : undefined;
+    result.push({
       id: `task-${i + 1}`,
-      prompt: task.prompt,
-      role: task.role,
-      title: task.title,
-      agentId: task.agentId,
-    };
-  });
+      prompt,
+      role,
+      title,
+      agentId,
+    });
+  }
+  return result.length > 0
+    ? result
+    : [
+        {
+          id: "task-1",
+          prompt: "Perform a general analysis of the request using available tools.",
+          role: "General Researcher",
+          title: "General research",
+        },
+      ];
 }
 
 /** Bounds waits even when a provider ignores AbortSignal. No new steps start after abort. */

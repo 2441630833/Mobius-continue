@@ -7,8 +7,22 @@ import { getStringArg } from "../parseArgs";
 import { throwIfFileExceedsHalfOfContext } from "./readFileLimit";
 import { ContinueError, ContinueErrorReason } from "../../util/errors";
 
+/** Normalize common parameter name variants the model may emit for the filepath. */
+function resolveFilepathArg(args: any): any {
+  if (!args || "filepath" in args) return args;
+  // Accept common case-variant / snake_case aliases the model may generate
+  const aliases = ["FilePath", "file_path", "path", "filename", "file"];
+  for (const alias of aliases) {
+    if (alias in args) {
+      return { ...args, filepath: args[alias] };
+    }
+  }
+  return args;
+}
+
 export const readFileImpl: ToolImpl = async (args, extras) => {
-  const filepath = getStringArg(args, "filepath");
+  const normalizedArgs = resolveFilepathArg(args);
+  const filepath = getStringArg(normalizedArgs, "filepath");
 
   // Resolve the path first to get the actual path for security check
   const resolvedPath = await resolveInputPath(extras.ide, filepath);

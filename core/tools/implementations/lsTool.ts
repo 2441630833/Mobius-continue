@@ -14,20 +14,33 @@ export function resolveLsToolDirPath(dirPath: string | undefined) {
 
 const MAX_LS_TOOL_LINES = 200;
 
+/** Normalize dirPath aliases the model may emit instead of the canonical "dirPath". */
+function resolveDirPathArg(args: any): any {
+  if (!args || "dirPath" in args) return args;
+  const aliases = ["path", "dir", "directory", "dir_path", "dirpath"];
+  for (const alias of aliases) {
+    if (alias in args) {
+      return { ...args, dirPath: args[alias] };
+    }
+  }
+  return args;
+}
+
 export const lsToolImpl: ToolImpl = async (args, extras) => {
-  const dirPath = resolveLsToolDirPath(args?.dirPath);
+  const normalizedArgs = resolveDirPathArg(args);
+  const dirPath = resolveLsToolDirPath(normalizedArgs?.dirPath);
   const resolvedPath = await resolveInputPath(extras.ide, dirPath);
   if (!resolvedPath) {
     throw new ContinueError(
       ContinueErrorReason.DirectoryNotFound,
-      `Directory ${args.dirPath} not found or is not accessible. You can use absolute paths, relative paths, or paths starting with ~`,
+      `Directory ${normalizedArgs?.dirPath ?? dirPath} not found or is not accessible. You can use absolute paths, relative paths, or paths starting with ~`,
     );
   }
 
   const entries = await walkDir(resolvedPath.uri, extras.ide, {
     returnRelativeUrisPaths: true,
     include: "both",
-    recursive: args?.recursive ?? false,
+    recursive: normalizedArgs?.recursive ?? false,
     overrideDefaultIgnores: ignore(), // Show all directories including dist/, build/, etc.
   });
 
@@ -48,7 +61,7 @@ export const lsToolImpl: ToolImpl = async (args, extras) => {
 
   if (entries.length > MAX_LS_TOOL_LINES) {
     let warningContent = `${entries.length - MAX_LS_TOOL_LINES} ls entries were truncated`;
-    if (args?.recursive) {
+    if (normalizedArgs?.recursive) {
       warningContent += ". Try using a non-recursive search";
     }
     contextItems.push({
