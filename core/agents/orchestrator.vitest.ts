@@ -135,20 +135,20 @@ describe("adaptive LangGraph professional team", () => {
     expect(result.concurrency).toBe(1);
   });
 
-  it("rejects a planner that exceeds the assessed budget before executing anything", async () => {
-    const work = vi.fn();
-    await expect(
-      orchestrateAgents(
-        "Research",
-        "",
-        host({
-          assess: async () => assessment(2),
-          plan: async () => plan(3),
-          work,
-        }),
-      ),
-    ).rejects.toThrow("1-2 tasks");
-    expect(work).not.toHaveBeenCalled();
+  it("clamps a planner to the assessed budget before executing workers", async () => {
+    const work = vi.fn(async () => "Evidence");
+    const result = await orchestrateAgents(
+      "Research",
+      "",
+      host({
+        assess: async () => assessment(2),
+        plan: async () => plan(3),
+        work,
+      }),
+    );
+    expect(result.tasks).toHaveLength(2);
+    expect(work).toHaveBeenCalledTimes(2);
+    expect(result.overallStatus).toBe("completed");
   });
 
   it("preserves worker failures even if summaries claim success", async () => {
@@ -293,27 +293,38 @@ describe("adaptive LangGraph professional team", () => {
     expect(result.artifacts[0].status).toBe("failed");
   });
 
-  it("validates difficulty, professional plans and the configurable ceiling", () => {
+  it("applies plan fallbacks and clamps difficulty and configurable ceilings", () => {
     expect(parseAgentPlan(plan(10))).toHaveLength(10);
     expect(parseAgentAssessment(assessment(10), 5).workerCount).toBe(5);
     for (const invalid of [
       "not json",
       plan(0),
-      plan(11),
       '{"tasks":[{"prompt":"question"}]}',
     ]) {
-      expect(() => parseAgentPlan(invalid)).toThrow();
+      expect(parseAgentPlan(invalid)).toHaveLength(1);
+      expect(parseAgentPlan(invalid)[0].role).toBe("General Researcher");
     }
     for (const invalid of [
       "null",
-      '{"difficulty":"simple","workerCount":10,"reason":"bad"}',
       '{"difficulty":"unknown","workerCount":1,"reason":"bad"}',
     ]) {
-      expect(() => parseAgentAssessment(invalid, 10)).toThrow();
+      expect(parseAgentAssessment(invalid, 10)).toMatchObject({
+        difficulty: "simple",
+        workerCount: 1,
+      });
     }
-    for (const invalid of [4, 11, 5.5, "10", NaN]) {
-      expect(() => resolveMaxAgents(invalid)).toThrow();
+    expect(parseAgentPlan(plan(11))).toHaveLength(10);
+    expect(
+      parseAgentAssessment(
+        '{"difficulty":"simple","workerCount":10,"reason":"clamp"}',
+        10,
+      ).workerCount,
+    ).toBe(2);
+    for (const invalid of [11, 5.5, NaN]) {
+      expect(resolveMaxAgents(invalid)).toBe(10);
     }
+    expect(resolveMaxAgents(4)).toBe(4);
+    expect(resolveMaxAgents("10")).toBe(10);
     expect(resolveMaxAgents()).toBe(10);
   });
 });

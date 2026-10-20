@@ -3,6 +3,7 @@ import type { ChatMessage, ILLM, Tool, ToolExtras } from "../..";
 import { orchestrateAgentsTool } from "../definitions/orchestrateAgents";
 import {
   collectAgentReply,
+  collectWorkerReply,
   orchestrateAgentsImpl,
   selectAgentModel,
 } from "./orchestrateAgents";
@@ -22,6 +23,7 @@ vi.mock("./searchWeb", () => ({
 }));
 import { searchWebImpl } from "./searchWeb";
 import { fromChatCompletionChunk } from "../../llm/openaiTypeConverters";
+import { globSearchTool } from "../definitions/globSearch";
 
 const searchTool: Tool = {
   ...orchestrateAgentsTool,
@@ -75,6 +77,140 @@ function extras(
 }
 
 describe("Continue orchestration adapter", () => {
+  it.each(["provider", "xml", "json"])(
+    "recovers a %s format failure and executes glob exactly once",
+    async (failure) => {
+      let attempts = 0;
+      const env = extras(
+        async function* (messages) {
+          if (String(messages[0].content).includes("supervisor")) {
+            yield {
+              role: "assistant",
+              content: professionalPlan(["Find presentation files"]),
+            };
+          } else if (messages.some((m) => m.role === "tool")) {
+            expect(JSON.stringify(messages)).toContain("slides.md");
+            yield { role: "assistant", content: "Found slides.md" };
+          } else {
+            attempts++;
+            expect(JSON.parse(String(messages[1].content)).request).toBe(
+              "Find presentation files",
+            );
+            if (attempts === 1) {
+              if (failure === "provider")
+                throw new Error("malformed <file_glob_search> call");
+              yield failure === "xml"
+                ? {
+                    role: "assistant",
+                    content:
+                      "<file_glob_search><pattern>**/*.*</pattern></file_glob_search>",
+                  }
+                : {
+                    role: "assistant",
+                    content: "",
+                    toolCalls: [
+                      {
+                        id: "invalid",
+                        function: {
+                          name: "file_glob_search",
+                          arguments: '{"pattern":',
+                        },
+                      },
+                    ],
+                  };
+            } else {
+              expect(String(messages.at(-1)?.content)).toContain(
+                "not executed",
+              );
+              expect(JSON.stringify(messages)).not.toContain('"id":"invalid"');
+              yield {
+                role: "assistant",
+                content: "",
+                toolCalls: [
+                  {
+                    id: "glob",
+                    function: {
+                      name: "file_glob_search",
+                      arguments: '{"pattern":"**/*.*"}',
+                    },
+                  },
+                ],
+              };
+            }
+          }
+          return {} as never;
+        } as ILLM["streamChat"],
+        [globSearchTool],
+      );
+      env.ide.getFileResults = vi.fn(async () => ["slides.md"]);
+      const run = JSON.parse(
+        (
+          await orchestrateAgentsImpl(
+            { request: "Find presentation files" },
+            env,
+          )
+        )[0].content,
+      );
+      expect(run.artifacts[0].status).toBe("completed");
+      expect(run.artifacts[0].content).toContain("slides.md");
+      expect(attempts).toBe(2);
+      expect(env.ide.getFileResults).toHaveBeenCalledExactlyOnceWith(
+        "**/*.*",
+        100,
+      );
+    },
+  );
+
+  it("bounds persistent provider format errors and reports a failed artifact", async () => {
+    let attempts = 0;
+    const env = extras(async function* (messages) {
+      if (String(messages[0].content).includes("supervisor")) {
+        yield { role: "assistant", content: professionalPlan(["Research"]) };
+      } else {
+        attempts++;
+        throw new Error("tool_use_failed: Failed to call a function");
+      }
+      return {} as never;
+    } as ILLM["streamChat"]);
+    const run = JSON.parse(
+      (await orchestrateAgentsImpl({ request: "Research" }, env))[0].content,
+    );
+    expect(attempts).toBe(3);
+    expect(run.artifacts[0].status).toBe("failed");
+    expect(run.artifacts[0].content).toContain("format recovery exhausted");
+  });
+
+  it.each(["401 Unauthorized", "network disconnected"])(
+    "does not retry unrelated error %s",
+    async (message) => {
+      const stream = vi.fn(async function* () {
+        throw new Error(message);
+        return {} as never;
+      });
+      const env = extras(stream as ILLM["streamChat"]);
+      await expect(
+        collectWorkerReply(env.llm, [], new AbortController().signal, [
+          globSearchTool,
+        ]),
+      ).rejects.toThrow(message);
+      expect(stream).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not retry a format error after cancellation", async () => {
+    const controller = new AbortController();
+    const stream = vi.fn(async function* () {
+      controller.abort(new Error("Canceled by parent"));
+      throw new Error("tool_use_failed");
+      return {} as never;
+    });
+    const env = extras(stream as ILLM["streamChat"]);
+    await expect(
+      collectWorkerReply(env.llm, [], controller.signal, [globSearchTool]),
+    ).rejects.toThrow("Canceled by parent");
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
   it.each([5, 10])(
     "invokes all model stages with %i specialists and a sufficient planning budget",
     async (maximum) => {

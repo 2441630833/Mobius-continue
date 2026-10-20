@@ -116,6 +116,82 @@ export async function collectAgentReply(
   }
 }
 
+class WorkerToolFormatError extends Error {}
+
+/** Retry generation only: no tool has executed when this function retries. */
+export async function collectWorkerReply(
+  llm: ILLM,
+  messages: ChatMessage[],
+  signal: AbortSignal,
+  tools: Tool[],
+) {
+  const attemptMessages = [...messages];
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    try {
+      const reply = await collectAgentReply(
+        llm,
+        attemptMessages,
+        signal,
+        tools,
+      );
+      for (const call of reply.calls.filter(Boolean)) {
+        try {
+          const args = JSON.parse(call.function.arguments);
+          if (!args || typeof args !== "object" || Array.isArray(args)) {
+            throw new Error("Expected an argument object");
+          }
+        } catch {
+          throw new WorkerToolFormatError(
+            "Tool arguments must be a JSON object",
+          );
+        }
+      }
+      // BaseLLM does not run the sidebar's system-message tool interceptor.
+      // Never report unexecuted XML/markdown tool markup as research evidence.
+      if (
+        !reply.calls.length &&
+        tools.some(
+          (tool) =>
+            reply.content.includes(`<${tool.function.name}`) ||
+            reply.content.includes(`TOOL_NAME: ${tool.function.name}`),
+        )
+      ) {
+        throw new WorkerToolFormatError("Tool call was returned as text");
+      }
+      return reply;
+    } catch (error) {
+      signal.throwIfAborted();
+      const message = error instanceof Error ? error.message : String(error);
+      const formatError =
+        error instanceof WorkerToolFormatError ||
+        /tool_use_failed|failed to (?:call a function|generate (?:a )?tool call)|malformed\s+[^\n]*?(?:tool|function|<[^>]+>)[^\n]*?call|invalid (?:tool call|function call|tool arguments)/i.test(
+          message,
+        );
+      if (!tools.length || !formatError) {
+        throw error;
+      }
+      if (attempt >= 2) {
+        throw new Error(
+          "Worker tool-call format recovery exhausted after 3 attempts",
+          { cause: error },
+        );
+      }
+      // Do not echo failed_generation or a partial tool message into history:
+      // providers reject unmatched tool IDs and invalid argument JSON there.
+      attemptMessages.push({
+        role: "user",
+        content:
+          "Your previous tool call had an invalid format and was not executed. " +
+          "Use the provided native function-calling interface with a JSON object matching the tool schema. " +
+          "Do not emit XML tags or tool code blocks. Available tool schemas: " +
+          JSON.stringify(tools.map((tool) => tool.function)) +
+          " If no tool is needed, return only your findings and explicitly state missing evidence.",
+      });
+    }
+  }
+}
+
 export function selectAgentModel(
   extras: ToolExtras,
   modelTitle?: string,
@@ -242,6 +318,7 @@ export const orchestrateAgentsImpl: ToolImpl = async (args, extras) => {
             {
               role: "user",
               content: JSON.stringify({
+                request,
                 task: task.prompt,
                 sharedContext: context,
               }),
@@ -249,7 +326,12 @@ export const orchestrateAgentsImpl: ToolImpl = async (args, extras) => {
           ];
           let toolCount = 0;
           for (let step = 0; step < AGENT_LIMITS.steps; step++) {
-            const reply = await collectAgentReply(llm, messages, signal, tools);
+            const reply = await collectWorkerReply(
+              llm,
+              messages,
+              signal,
+              tools,
+            );
             if (!reply.calls.length) {
               return reply.content;
             }
