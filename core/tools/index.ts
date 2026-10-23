@@ -4,9 +4,6 @@ import * as toolDefinitions from "./definitions";
 
 // I'm writing these as functions because we've messed up 3 TIMES by pushing to const, causing duplicate tool definitions on subsequent config loads.
 export const getBaseToolDefinitions = () => [
-  toolDefinitions.orchestrateAgentsTool,
-  toolDefinitions.listA2aAgentsTool,
-  toolDefinitions.callA2aAgentTool,
   toolDefinitions.readFileTool,
   toolDefinitions.createNewFileTool,
   toolDefinitions.runTerminalCommandTool,

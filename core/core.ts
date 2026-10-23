@@ -1242,8 +1242,6 @@ export class Core {
     // Bing / webpage GETs must not inherit LLM proxy or Authorization headers
     // from config.requestOptions — those break Search Web / Fetch Webpage.
     const isOutboundWebTool =
-      resolvedName === "orchestrate_agents" ||
-      resolvedName === "call_a2a_agent" ||
       resolvedName === BuiltInToolNames.SearchWeb ||
       resolvedName === BuiltInToolNames.FetchUrlContent;
     // Do not annotate init as DOM RequestInit — @continuedev/fetch uses node-fetch's RequestInit.

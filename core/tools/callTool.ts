@@ -6,7 +6,6 @@ import { canParseUrl } from "../util/url";
 import { BuiltInToolNames } from "./builtIn";
 
 import { codebaseToolImpl } from "./implementations/codebaseTool";
-import { orchestrateAgentsImpl, listA2aAgentsImpl, callA2aAgentImpl } from "./implementations/orchestrateAgents";
 import { createNewFileImpl } from "./implementations/createNewFile";
 import { createRuleBlockImpl } from "./implementations/createRuleBlock";
 import { fetchUrlContentImpl } from "./implementations/fetchUrlContent";
@@ -191,12 +190,6 @@ export async function callBuiltInTool(
   extras: ToolExtras,
 ): Promise<ContextItem[]> {
   switch (functionName) {
-    case "orchestrate_agents":
-      return orchestrateAgentsImpl(args, extras);
-    case "list_a2a_agents":
-      return listA2aAgentsImpl(args, extras);
-    case "call_a2a_agent":
-      return callA2aAgentImpl(args, extras);
     case BuiltInToolNames.ReadFile:
       return await readFileImpl(args, extras);
     case BuiltInToolNames.ReadFileRange:
