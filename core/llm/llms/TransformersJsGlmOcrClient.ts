@@ -21,7 +21,7 @@ type WorkerResponse =
 /** How long to wait for the forked worker to finish ONNX init + warmup. */
 const GLM_OCR_READY_TIMEOUT_MS = 45_000;
 
-class GlmOcrForkClient {
+export class GlmOcrForkClient {
   private child: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<
@@ -84,6 +84,7 @@ class GlmOcrForkClient {
     }
 
     const env = workerNodeEnv(this.localModelPath);
+    let stderrTail = "";
     const child = fork(workerPath, [], {
       env,
       stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -98,13 +99,16 @@ class GlmOcrForkClient {
       }
       this.failAll(
         new Error(
-          `GLM-OCR worker did not become ready within ${GLM_OCR_READY_TIMEOUT_MS}ms (ONNX init hang or missing models). Set MOBIUS_GLM_OCR_DEVICE=cpu if GPU EPs fail.`,
-        ),
+          `GLM-OCR worker did not become ready within ${GLM_OCR_READY_TIMEOUT_MS}ms (ONNX init hang or missing models). Set MOBIUS_GLM_OCR_DEVICE=cpu if GPU EPs fail.${
+            stderrTail ? `\n${stderrTail}` : ""
+          }`
+        )
       );
     }, GLM_OCR_READY_TIMEOUT_MS);
     this.readyTimer.unref?.();
 
     child.on("message", (msg: WorkerResponse) => {
+      if (this.child !== child) return;
       if (!msg || typeof msg !== "object") {
         return;
       }
@@ -121,7 +125,9 @@ class GlmOcrForkClient {
           typeof (msg as { device?: string }).device === "string"
         ) {
           console.log(
-            `[MobiusOCR] child ready device=${(msg as { device: string }).device}`,
+            `[MobiusOCR] child ready device=${
+              (msg as { device: string }).device
+            }`
           );
         }
         this.flushQueue(child);
@@ -141,14 +147,22 @@ class GlmOcrForkClient {
       }
     });
     child.on("error", (err) => {
+      if (this.child !== child) return;
       this.failAll(err instanceof Error ? err : new Error(String(err)));
     });
-    child.on("exit", (code, signal) => {
+    // close follows drained stderr; exit may precede the useful loader error.
+    child.on("close", (code, signal) => {
+      if (this.child !== child) return;
+      this.clearReadyTimer();
       if (this.pending.size > 0 || this.queue.length > 0) {
         this.failAll(
           new Error(
-            `GLM-OCR process exited (code=${code ?? "null"} signal=${signal ?? "null"})`,
-          ),
+            `GLM-OCR process exited (code=${code ?? "null"} signal=${
+              signal ?? "null"
+            }) on ${process.platform}/${process.arch}${
+              stderrTail ? `\n${stderrTail}` : ""
+            }`
+          )
         );
       } else {
         this.child = null;
@@ -156,6 +170,7 @@ class GlmOcrForkClient {
       }
     });
     child.stderr?.on("data", (buf: Buffer) => {
+      stderrTail = (stderrTail + buf.toString("utf8")).slice(-6000);
       const line = buf.toString("utf8").trim();
       if (line) {
         console.warn(`[MobiusOCR] child stderr: ${line.slice(0, 500)}`);
@@ -165,7 +180,7 @@ class GlmOcrForkClient {
     this.child = child;
     this.ready = false;
     console.log(
-      `[MobiusOCR] GLM-OCR forked pid=${child.pid} at ${workerPath} (ELECTRON_RUN_AS_NODE)`,
+      `[MobiusOCR] GLM-OCR forked pid=${child.pid} at ${workerPath} (ELECTRON_RUN_AS_NODE)`
     );
     return child;
   }
@@ -214,6 +229,7 @@ let sharedClient: GlmOcrForkClient | null = null;
 function workerNodeEnv(localModelPath: string): NodeJS.Dict<string> {
   const fs = require("fs") as typeof import("fs");
   const extra = [
+    path.join(__dirname, "glm-ocr-runtime", "node_modules"),
     // Worker lives in out/ — prefer out/node_modules for @huggingface/transformers.
     path.join(__dirname, "node_modules"),
     path.join(__dirname, "..", "node_modules"),
@@ -222,7 +238,7 @@ function workerNodeEnv(localModelPath: string): NodeJS.Dict<string> {
       "node_modules",
       "@huggingface",
       "transformers",
-      "node_modules",
+      "node_modules"
     ),
     path.join(
       __dirname,
@@ -230,7 +246,7 @@ function workerNodeEnv(localModelPath: string): NodeJS.Dict<string> {
       "node_modules",
       "@huggingface",
       "transformers",
-      "node_modules",
+      "node_modules"
     ),
     path.join(__dirname, "..", "..", "..", "core", "node_modules"),
     path.join(__dirname, "..", "..", "node_modules"),
@@ -281,7 +297,7 @@ function resolveLocalModelPath(): string {
       ? path.dirname(new URL(import.meta.url).pathname)
       : __dirname,
     "..",
-    "models",
+    "models"
   );
 }
 
@@ -293,7 +309,7 @@ function getSharedClient(): GlmOcrForkClient {
 }
 
 export async function runGlmOcrViaWorker(
-  request: GlmOcrRequest,
+  request: GlmOcrRequest
 ): Promise<string> {
   return getSharedClient().ocr(request);
 }
