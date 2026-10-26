@@ -72,9 +72,11 @@ export const MainEditorProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     if (mainEditorContentTrigger) {
-      queueMicrotask(() => {
-        mainEditor.commands.setContent(mainEditorContentTrigger);
-      });
+      if (!mainEditor.getText().trim()) {
+        queueMicrotask(() => {
+          mainEditor.commands.setContent(mainEditorContentTrigger);
+        });
+      }
       dispatch(setMainEditorContentTrigger(undefined));
       return;
     }
