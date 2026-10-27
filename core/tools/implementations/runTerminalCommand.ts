@@ -51,9 +51,16 @@ function getShellCommand(command: string): { shell: string; args: string[] } {
   if (process.platform === "win32") {
     const shell = getWindowsShell();
     const normalized = normalizeWindowsCommand(command, shell);
+    const utf8Setup = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); `;
     return {
       shell,
-      args: ["-NoLogo", "-ExecutionPolicy", "Bypass", "-Command", normalized],
+      args: [
+        "-NoLogo",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        utf8Setup + normalized,
+      ],
     };
   } else {
     // Unix/macOS: Use login shell to source .bashrc/.zshrc etc.
@@ -121,6 +128,9 @@ const getColorEnv = () => ({
   TERM: "xterm-256color",
   CLICOLOR: "1",
   CLICOLOR_FORCE: "1",
+  PYTHONIOENCODING: "utf-8",
+  PYTHONUTF8: "1",
+  LESSCHARSET: "utf-8",
 });
 
 // Only spawn processes locally when there is no remote workspace.

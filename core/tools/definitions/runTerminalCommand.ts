@@ -25,7 +25,7 @@ function getPreferredShell(): string {
 
 const PLATFORM_INFO =
   os.platform() === "win32"
-    ? `Windows shell is PowerShell. Do NOT use bash-style \`&&\` on Windows PowerShell 5.x -- chain commands with \`;\` instead (e.g. Set-Location "d:\\project"; npm run web). Prefer \`Set-Location\` over \`cd\` when combining with other commands.`
+    ? `Windows shell is PowerShell. Do NOT use bash-style \`&&\` on Windows PowerShell 5.x -- chain commands with \`;\` instead (e.g. Set-Location "d:\\project"; npm run web). Prefer \`Set-Location\` over \`cd\` when combining with other commands. When inspecting or reading files, ALWAYS prefer read_file / view tools over running terminal commands like type or cat. If PowerShell Get-Content must be used, always specify -Encoding utf8 (e.g. Get-Content -Path file.txt -Encoding utf8) to avoid GBK/CP936 mojibake.`
     : `Choose terminal commands optimized for ${os.platform()} and ${os.arch()} and shell ${getPreferredShell()}.`;
 
 const RUN_COMMAND_NOTES = `The shell is not stateful and will not remember any previous commands.\

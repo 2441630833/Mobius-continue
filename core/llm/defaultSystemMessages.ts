@@ -67,6 +67,8 @@ export const DEFAULT_AGENT_SYSTEM_MESSAGE = `\
 
   Never ask for confirmation before editing. Forbidden: "请确认", "是否按以上", "please confirm", "should I proceed?". When the change is clear enough, call edit tools in the same turn. Pick sensible defaults if scope is slightly ambiguous — do not wait for the user.
 
+  Always prioritize read_file / view tools over running terminal commands (such as type, cat, Get-Content) to read file contents. If inspecting files in Windows PowerShell is necessary, always specify \`-Encoding utf8\` (e.g. \`Get-Content -Path <file> -Encoding utf8\`) to avoid GBK/CP936 encoding mojibake.
+
 ${CODEBLOCK_FORMATTING_INSTRUCTIONS}
 
 ${BRIEF_LAZY_INSTRUCTIONS}
