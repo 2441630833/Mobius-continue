@@ -30,23 +30,33 @@ const IMAGE_INPUT_CAPABILITY_TOKENS = [
   "image_understanding",
 ];
 
+const TEXT_ONLY_CAPABILITY_TOKENS = [
+  "text_only",
+  "textonly",
+  "no_image",
+  "no_images",
+  "no_vision",
+];
+
 /**
- * `undefined` when the config declares no capability inventory at all (so autodetection still runs),
- * otherwise whether the inventory contains an image/vision token.
+ * Modern models are multimodal by default. Returns false only when the declaration
+ * explicitly opts out with a text-only token; otherwise returns true (the server decides).
  */
 function hasImageInputCapability(
   capabilities: string[] | undefined,
 ): boolean | undefined {
   if (!capabilities || capabilities.length === 0) {
-    return undefined;
+    return true;
   }
-  return capabilities.some((token) =>
-    IMAGE_INPUT_CAPABILITY_TOKENS.includes(
-      String(token)
-        .toLowerCase()
-        .replace(/[[\]'"`\s,]/g, ""),
-    ),
+  const normalized = capabilities.map((token) =>
+    String(token)
+      .toLowerCase()
+      .replace(/[[\]'"`\s,]/g, "")
   );
+  if (normalized.some((token) => TEXT_ONLY_CAPABILITY_TOKENS.includes(token))) {
+    return false;
+  }
+  return true;
 }
 
 const ENV_STRING_KEYS = [
