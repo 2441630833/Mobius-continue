@@ -9,6 +9,46 @@ import { LLMClasses } from "../../llm/llms";
 
 const AUTODETECT = "AUTODETECT";
 
+/**
+ * Capability tokens that mean "this endpoint accepts images".
+ *
+ * Continue writes `image_input`, but hand-edited config.yaml files routinely use one of the aliases
+ * below (`vision`, `image`, `multimodal`, ...). Recognising only the exact token meant a multimodal
+ * endpoint was treated as text-only and the attached image never reached the request.
+ */
+const IMAGE_INPUT_CAPABILITY_TOKENS = [
+  "image_input",
+  "imageinput",
+  "image_inputs",
+  "image",
+  "images",
+  "vision",
+  "vision_input",
+  "image_url",
+  "multimodal",
+  "multi_modal",
+  "image_understanding",
+];
+
+/**
+ * `undefined` when the config declares no capability inventory at all (so autodetection still runs),
+ * otherwise whether the inventory contains an image/vision token.
+ */
+function hasImageInputCapability(
+  capabilities: string[] | undefined,
+): boolean | undefined {
+  if (!capabilities || capabilities.length === 0) {
+    return undefined;
+  }
+  return capabilities.some((token) =>
+    IMAGE_INPUT_CAPABILITY_TOKENS.includes(
+      String(token)
+        .toLowerCase()
+        .replace(/[[\]'"`\s,]/g, ""),
+    ),
+  );
+}
+
 const ENV_STRING_KEYS = [
   "apiType",
   "apiVersion",
@@ -105,7 +145,7 @@ async function modelConfigToBaseLLM({
       : undefined,
     capabilities: {
       tools: model.capabilities?.includes("tool_use"),
-      uploadImage: model.capabilities?.includes("image_input"),
+      uploadImage: hasImageInputCapability(model.capabilities),
       nextEdit: model.capabilities?.includes("next_edit"),
     },
     autocompleteOptions: model.autocompleteOptions,
@@ -122,7 +162,7 @@ async function modelConfigToBaseLLM({
     };
   }
 
-  if (capabilities?.includes("image_input")) {
+  if (hasImageInputCapability(capabilities)) {
     options.capabilities = {
       ...options.capabilities,
       uploadImage: true,
