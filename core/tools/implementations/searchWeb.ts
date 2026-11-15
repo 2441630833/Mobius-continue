@@ -20,16 +20,6 @@ function resolveSearchQuery(args: Record<string, unknown>): string {
 }
 
 export const searchWebImpl: ToolImpl = async (args, extras) => {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    return [
-      {
-        name: "Network offline",
-        description: "Web search disabled",
-        content: "Search web is disabled because the network is offline. Please answer using existing knowledge or local workspace context.",
-      },
-    ];
-  }
-
   const query = resolveSearchQuery(args as Record<string, unknown>);
 
   let webResults;

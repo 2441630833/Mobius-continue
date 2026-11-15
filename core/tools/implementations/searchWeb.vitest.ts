@@ -120,17 +120,18 @@ test("searchWeb accepts q alias for query", async () => {
   );
 });
 
-test("searchWeb returns offline disabled response when navigator.onLine is false", async () => {
+test("searchWeb continues to fetch even if navigator.onLine is false (Linux compatibility)", async () => {
   const originalOnLine = Object.getOwnPropertyDescriptor(globalThis.navigator, "onLine");
   try {
     Object.defineProperty(globalThis.navigator, "onLine", { value: false, configurable: true });
     (fetchSearchResults as any).mockClear();
+    (fetchSearchResults as any).mockResolvedValue([
+      { name: "Result 1", description: "Desc", content: "Content" },
+    ]);
 
     const result = await searchWebImpl({ query: "test query" }, mockExtras);
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("Network offline");
-    expect(result[0].content).toContain("Search web is disabled because the network is offline");
-    expect(fetchSearchResults).not.toHaveBeenCalled();
+    expect(fetchSearchResults).toHaveBeenCalled();
   } finally {
     if (originalOnLine) {
       Object.defineProperty(globalThis.navigator, "onLine", originalOnLine);
